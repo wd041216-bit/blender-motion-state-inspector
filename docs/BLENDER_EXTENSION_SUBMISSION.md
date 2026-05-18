@@ -4,9 +4,9 @@ This document tracks the review package for submitting Motion State Inspector to
 
 ## Extension Package
 
-- Package: `motion_state_inspector-0.1.0.zip`
-- Release: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/tag/v0.1.0
-- Download: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/download/v0.1.0/motion_state_inspector-0.1.0.zip
+- Package: `motion_state_inspector-0.1.1.zip`
+- Release: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/tag/v0.1.1
+- Download: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/download/v0.1.1/motion_state_inspector-0.1.1.zip
 - SHA256: `466d78f4c24dcaa38017eaa2e3f5091a7de6bd0fc0539f65fa1b04884cac9caf`
 
 ## Local Validation
@@ -14,7 +14,7 @@ This document tracks the review package for submitting Motion State Inspector to
 ```bash
 blender --command extension validate addon --valid-tags=""
 blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
-blender --command extension validate dist/motion_state_inspector-0.1.0.zip --valid-tags=""
+blender --command extension validate dist/motion_state_inspector-0.1.1.zip --valid-tags=""
 ```
 
 All three commands passed locally with Blender 5.1.1.

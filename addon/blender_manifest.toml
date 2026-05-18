@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "motion_state_inspector"
-version = "0.1.0"
+version = "0.1.1"
 name = "Motion State Inspector"
 tagline = "Export LLM-readable model, skeleton, and motion state reports"
 maintainer = "wd041216-bit"

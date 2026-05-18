@@ -1,75 +1,147 @@
 import json
-import socketserver
-import threading
-import bpy
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
 
-try:
-    from .collector import collect_scene, write_raw_state
-except ImportError:  # Support direct source-tree execution.
-    from addon.collector import collect_scene, write_raw_state
 
 HOST = "127.0.0.1"
 PORT = 9658
 
-_server_instance = None
-_server_thread = None
+_server_process = None
+_request_dir = None
+_timer_registered = False
 
 
-class InspectHandler(socketserver.BaseRequestHandler):
-    def handle(self):
+def _service_requests():
+    global _timer_registered
+    if _server_process is None or _request_dir is None:
+        _timer_registered = False
+        return None
+
+    request_path = Path(_request_dir)
+    for item in sorted(request_path.glob("request_*.json")):
         try:
-            data = self.request.recv(65536).decode("utf-8")
-            if not data:
-                return
-            msg = json.loads(data)
-            cmd = msg.get("cmd")
-            if cmd == "ping":
-                response = {"status": "ok", "blender_version": ".".join(str(x) for x in bpy.app.version)}
-            elif cmd == "inspect":
-                target = msg.get("target", "all")
-                simplified = msg.get("simplified", False)
-                raw = {"status": "pending"}
-                def _collect():
-                    nonlocal raw
-                    raw = collect_scene(target=target, simplified=simplified)
-                    return None
-                bpy.app.timers.register(_collect, first_interval=0.01)
-                import time
-                time.sleep(0.5)
-                path = write_raw_state(raw)
-                response = {"status": "ok", "path": path, "elapsed_ms": 500}
-            else:
-                response = {"status": "error", "message": f"Unknown command: {cmd}"}
-        except Exception as e:
-            response = {"status": "error", "message": str(e)}
-        self.request.sendall(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+            request = json.loads(item.read_text(encoding="utf-8"))
+            response = _handle_inspect_request(request)
+            response_file = request_path / f"response_{request.get('id')}.json"
+            tmp_file = response_file.with_suffix(".tmp")
+            tmp_file.write_text(json.dumps(response, ensure_ascii=False), encoding="utf-8")
+            tmp_file.replace(response_file)
+            item.unlink(missing_ok=True)
+        except Exception as exc:
+            error_file = item.with_name(item.name.replace("request_", "response_", 1))
+            error_file.write_text(json.dumps({"status": "error", "message": str(exc)}), encoding="utf-8")
+            item.unlink(missing_ok=True)
+
+    if _server_process.poll() is None:
+        return 0.05
+
+    _timer_registered = False
+    return None
 
 
-class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+def _handle_inspect_request(request):
+    try:
+        from .collector import collect_scene, write_raw_state
+
+        raw = collect_scene(
+            target=request.get("target", "all"),
+            simplified=bool(request.get("simplified", False)),
+        )
+        path = write_raw_state(raw)
+        return {"status": "ok", "path": path}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+def _register_timer():
+    global _timer_registered
+    if _timer_registered:
+        return
+    import bpy
+
+    bpy.app.timers.register(_service_requests, first_interval=0.05, persistent=True)
+    _timer_registered = True
+
+
+def _wait_for_port(host, port, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.1):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
 
 
 def start_server(host=HOST, port=PORT):
-    global _server_instance, _server_thread
-    if _server_instance is not None:
+    global _server_process, _request_dir
+    if _server_process is not None and _server_process.poll() is None:
         return False
-    _server_instance = ThreadedTCPServer((host, port), InspectHandler)
-    _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
-    _server_thread.start()
+
+    import bpy
+
+    _request_dir = tempfile.mkdtemp(prefix="bmsi_socket_")
+    child_script = Path(__file__).with_name("socket_server_process.py")
+    blender_version = ".".join(str(value) for value in bpy.app.version)
+    _server_process = subprocess.Popen(
+        [
+            sys.executable,
+            str(child_script),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--request-dir",
+            _request_dir,
+            "--blender-version",
+            blender_version,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _register_timer()
+    if not _wait_for_port(host, port):
+        stop_server()
+        return False
     return True
 
 
 def stop_server():
-    global _server_instance, _server_thread
-    if _server_instance is not None:
-        _server_instance.shutdown()
-        _server_instance.server_close()
-        _server_instance = None
-        _server_thread = None
-        return True
-    return False
+    global _server_process, _request_dir
+    if _server_process is None:
+        return False
+
+    try:
+        with socket.create_connection((HOST, PORT), timeout=0.5) as sock:
+            sock.sendall(json.dumps({"cmd": "shutdown"}).encode("utf-8"))
+            sock.recv(4096)
+    except OSError:
+        pass
+
+    try:
+        _server_process.wait(timeout=1.0)
+    except subprocess.TimeoutExpired:
+        pass
+    if _server_process.poll() is None:
+        _server_process.terminate()
+        try:
+            _server_process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            _server_process.kill()
+            _server_process.wait(timeout=1.0)
+
+    _server_process = None
+    if _request_dir:
+        shutil.rmtree(_request_dir, ignore_errors=True)
+    _request_dir = None
+    return True
 
 
 def is_running():
-    return _server_instance is not None
+    return _server_process is not None and _server_process.poll() is None

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Motion State Inspector",
     "author": "...",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 0, 0),
     "location": "View3D > N-Panel > Motion State",
     "description": "Inspect 3D character state and export structured reports for LLM consumption",
@@ -11,10 +11,7 @@ bl_info = {
 
 import bpy
 
-try:
-    from .panel import register as panel_register, unregister as panel_unregister
-except ImportError:  # Support direct source-tree execution in older tests.
-    from addon.panel import register as panel_register, unregister as panel_unregister
+from .panel import register as panel_register, unregister as panel_unregister
 
 def register():
     panel_register()

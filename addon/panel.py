@@ -1,11 +1,7 @@
 import bpy
 
-try:
-    from .collector import collect_scene, write_raw_state
-    from .socket_server import start_server, stop_server, is_running
-except ImportError:  # Support direct source-tree execution.
-    from addon.collector import collect_scene, write_raw_state
-    from addon.socket_server import start_server, stop_server, is_running
+from .collector import collect_scene, write_raw_state
+from .socket_server import is_running, start_server, stop_server
 
 
 class MOTIONSTATE_OT_inspect_scene(bpy.types.Operator):

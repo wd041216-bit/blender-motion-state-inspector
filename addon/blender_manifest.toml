@@ -11,6 +11,7 @@ website = "https://github.com/wd041216-bit/blender-motion-state-inspector"
 blender_version_min = "4.2.0"
 
 license = [
+  "SPDX:GPL-3.0-or-later",
   "SPDX:MIT",
 ]
 

@@ -7,7 +7,7 @@ This document tracks the review package for submitting Motion State Inspector to
 - Package: `motion_state_inspector-0.1.0.zip`
 - Release: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/tag/v0.1.0
 - Download: https://github.com/wd041216-bit/blender-motion-state-inspector/releases/download/v0.1.0/motion_state_inspector-0.1.0.zip
-- SHA256: `04261e8698fa0db317f3d0e075413032727aaf7682508758f44c1c73b61c25ff`
+- SHA256: `466d78f4c24dcaa38017eaa2e3f5091a7de6bd0fc0539f65fa1b04884cac9caf`
 
 ## Local Validation
 
@@ -59,7 +59,8 @@ https://github.com/wd041216-bit/blender-motion-state-inspector
 License:
 
 ```text
-MIT
+SPDX:GPL-3.0-or-later
+SPDX:MIT
 ```
 
 Permissions:
@@ -78,7 +79,7 @@ network: Expose an optional local TCP inspection server
 
 ## Current Submission Status
 
-Blocked on Blender ID / Cloudflare human verification at:
+Uploaded package was rejected once by Blender Extensions because add-ons must declare `SPDX:GPL-3.0-or-later` in the manifest. The package has been updated to include Blender's required GPL-3.0-or-later declaration plus the original MIT declaration.
 
 ```text
 https://extensions.blender.org/submit/

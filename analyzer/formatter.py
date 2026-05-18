@@ -11,6 +11,33 @@ def format_markdown(report: Dict) -> str:
         lines.append("")
         lines.append(f"**摘要：** {report.get('summary', '')}")
         lines.append("")
+        clip = report.get("clip_check")
+        if clip:
+            lines.append("### 时间段穿模检查")
+            verdict = clip.get("verdict", "unknown").upper()
+            lines.append(f"- Verdict: **{verdict}**")
+            lines.append(f"- {clip.get('summary', '')}")
+            events = clip.get("events", [])
+            if events:
+                lines.append("- 穿模帧与空间信息:")
+                for event in events[:20]:
+                    if event.get("type") == "ground_penetration":
+                        center = event.get("actor_bottom_center")
+                        lines.append(
+                            f"  - Frame {event.get('frame')}: {event.get('actor')} entered ground "
+                            f"by {event.get('penetration_depth')} at {center}"
+                        )
+                    elif event.get("type") == "bbox_overlap":
+                        overlap = event.get("overlap", {})
+                        lines.append(
+                            f"  - Frame {event.get('frame')}: {' vs '.join(event.get('actors', []))}, "
+                            f"depth={overlap.get('penetration_depth')}, center={overlap.get('center')}, axes={overlap.get('axes')}"
+                        )
+                if len(events) > 20:
+                    lines.append(f"  - ... {len(events) - 20} more events omitted from Markdown; see JSON for full detail")
+            else:
+                lines.append("- 未检测到穿模")
+            lines.append("")
         events = report.get("event_diagnostics", [])
         lines.append("### 事件诊断")
         if events:

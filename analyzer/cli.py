@@ -13,6 +13,7 @@ from analyzer.spatial import calculate_spatial_summary
 from analyzer.contact_detector import detect_contacts
 from analyzer.formatter import format_json, format_markdown
 from analyzer.facing import infer_facing
+from analyzer.clip_detector import build_temporal_clip_check
 
 
 def _bone_lookup(actor):
@@ -120,7 +121,13 @@ def build_report(scene):
     }
 
 
-def build_timeline_report(raw: dict):
+def build_timeline_report(
+    raw: dict,
+    clip_check: bool = False,
+    clip_tolerance: float = 0.0,
+    clip_frame_start: int | None = None,
+    clip_frame_end: int | None = None,
+):
     frame_reports = []
     jsonl_rows = []
     for frame_raw in raw.get("frames", []):
@@ -150,13 +157,21 @@ def build_timeline_report(raw: dict):
                 active[key]["count"] += 1
     anomaly_events = list(active.values())
 
-    return {
+    report = {
         "summary": f"Analyzed {len(frame_reports)} sampled frames",
         "meta": raw.get("meta", {}),
         "frame_reports": frame_reports,
         "frame_diagnostics": jsonl_rows,
         "event_diagnostics": anomaly_events,
     }
+    if clip_check:
+        report["clip_check"] = build_temporal_clip_check(
+            raw,
+            tolerance=clip_tolerance,
+            frame_start=clip_frame_start,
+            frame_end=clip_frame_end,
+        )
+    return report
 
 
 def main(argv=None):
@@ -165,14 +180,31 @@ def main(argv=None):
     parser.add_argument("--output-md", default="report.md", help="Markdown output path")
     parser.add_argument("--output-json", default="report.json", help="JSON output path")
     parser.add_argument("--output-jsonl", default=None, help="Optional per-frame diagnostics JSONL path for animation_state input")
+    parser.add_argument("--clip-check", action="store_true", help="Run temporal clipping/interpenetration pass-fail diagnostics")
+    parser.add_argument("--clip-tolerance", type=float, default=0.0, help="Allowed overlap/penetration tolerance in scene units")
+    parser.add_argument("--clip-frame-start", type=int, default=None, help="Optional first frame for temporal clip check")
+    parser.add_argument("--clip-frame-end", type=int, default=None, help="Optional last frame for temporal clip check")
     args = parser.parse_args(argv)
 
     raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
     if "frames" in raw:
-        report = build_timeline_report(raw)
+        report = build_timeline_report(
+            raw,
+            clip_check=args.clip_check,
+            clip_tolerance=args.clip_tolerance,
+            clip_frame_start=args.clip_frame_start,
+            clip_frame_end=args.clip_frame_end,
+        )
     else:
         scene = load_raw_state(raw)
         report = build_report(scene)
+        if args.clip_check:
+            report["clip_check"] = build_temporal_clip_check(
+                raw,
+                tolerance=args.clip_tolerance,
+                frame_start=args.clip_frame_start,
+                frame_end=args.clip_frame_end,
+            )
 
     Path(args.output_md).write_text(format_markdown(report), encoding="utf-8")
     Path(args.output_json).write_text(format_json(report), encoding="utf-8")

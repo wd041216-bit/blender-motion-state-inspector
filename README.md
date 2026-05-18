@@ -61,6 +61,23 @@ python -m analyzer.cli animation_state.json \
   --output-jsonl frame_diagnostics.jsonl
 ```
 
+Run a temporal clipping check over the sampled frame range:
+
+```bash
+python -m analyzer.cli animation_state.json \
+  --clip-check \
+  --clip-tolerance 0.01 \
+  --clip-frame-start 40 \
+  --clip-frame-end 96 \
+  --output-md report.md \
+  --output-json report.json
+```
+
+The `clip_check` section reports `verdict: pass` when no clipping is found in
+the requested time window. If clipping is detected, it reports the failing
+frames with spatial diagnostics such as object names, overlap center,
+axis overlap depth, actor bounding boxes, and ground penetration depth.
+
 Example frame diagnostic:
 
 ```json
@@ -208,6 +225,23 @@ python -m analyzer.cli animation_state.json \
   --output-json report.json \
   --output-jsonl frame_diagnostics.jsonl
 ```
+
+Temporal clipping check:
+
+```bash
+python -m analyzer.cli animation_state.json \
+  --clip-check \
+  --clip-tolerance 0.01 \
+  --clip-frame-start 40 \
+  --clip-frame-end 96 \
+  --output-md report.md \
+  --output-json report.json
+```
+
+When no clipping is found in the selected time window, `clip_check.verdict`
+is `pass`. If clipping is found, the report lists the failing frames with
+object names, overlap center, axis overlap depth, actor bounding boxes, and
+ground penetration depth.
 
 ---
 

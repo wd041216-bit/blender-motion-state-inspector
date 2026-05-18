@@ -20,9 +20,15 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
+keywords = ["blender", "3d", "animation", "motion-capture", "retargeting", "llm", "agents", "avatar"]
 dependencies = [
   # No runtime deps for core analyzer; optional numpy/scipy in V2
 ]
+
+[project.urls]
+Homepage = "https://github.com/wd041216-bit/blender-motion-state-inspector"
+Repository = "https://github.com/wd041216-bit/blender-motion-state-inspector"
+Issues = "https://github.com/wd041216-bit/blender-motion-state-inspector/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-blender>=1.0"]

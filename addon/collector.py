@@ -2,6 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 import bpy
+from mathutils import Vector
 from addon.utils import ensure_object_mode, get_evaluated_mesh
 
 
@@ -51,12 +52,20 @@ def _collect_mesh(obj, simplified):
         if m.type == "ARMATURE" and m.object:
             arm_name = m.object.name
             break
+    world_corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+    bbox_world_min = [min(corner[i] for corner in world_corners) for i in range(3)]
+    bbox_world_max = [max(corner[i] for corner in world_corners) for i in range(3)]
+    local_min = [min(corner[i] for corner in obj.bound_box) for i in range(3)]
+    local_max = [max(corner[i] for corner in obj.bound_box) for i in range(3)]
     result = {
         "vertex_count": len(mesh.vertices),
         "face_count": len(mesh.polygons),
         "edge_count": len(mesh.edges),
-        "bbox_min": list(obj.bound_box[0]),
-        "bbox_max": list(obj.bound_box[6]),
+        "bbox_min": local_min,
+        "bbox_max": local_max,
+        "bbox_world_min": bbox_world_min,
+        "bbox_world_max": bbox_world_max,
+        "dimensions": list(obj.dimensions),
         "materials": [mat.name for mat in mesh.materials if mat],
         "has_armature_modifier": has_arm,
         "armature_name": arm_name,
@@ -84,19 +93,22 @@ def _collect_armature(obj):
         pose_bone = arm_obj.pose.bones.get(bone.name)
         pb_data = {}
         if pose_bone:
+            pose_world_matrix = arm_obj.matrix_world @ pose_bone.matrix
             pb_data = {
                 "location": list(pose_bone.location),
                 "rotation_quaternion": list(pose_bone.rotation_quaternion),
                 "scale": list(pose_bone.scale),
-                "world_matrix": [list(row) for row in pose_bone.matrix],
+                "world_matrix": [list(row) for row in pose_world_matrix],
             }
+        world_head = arm_obj.matrix_world @ pose_bone.head if pose_bone else arm_obj.matrix_world @ bone.head_local
+        world_tail = arm_obj.matrix_world @ pose_bone.tail if pose_bone else arm_obj.matrix_world @ bone.tail_local
         bones.append({
             "name": bone.name,
             "parent": bone.parent.name if bone.parent else None,
             "head": list(bone.head_local),
             "tail": list(bone.tail_local),
-            "world_head": list(pose_bone.head) if pose_bone else list(bone.head_local),
-            "world_tail": list(pose_bone.tail) if pose_bone else list(bone.tail_local),
+            "world_head": list(world_head),
+            "world_tail": list(world_tail),
             "local_rotation_euler": list(bone.matrix_local.to_euler()),
             "world_rotation_quaternion": list(pose_bone.rotation_quaternion) if pose_bone else [1, 0, 0, 0],
             "length": bone.length,
@@ -117,12 +129,13 @@ def _collect_pose(obj):
         return {"pose_bones": []}
     pose_bones = []
     for pb in arm_obj.pose.bones:
+        pose_world_matrix = arm_obj.matrix_world @ pb.matrix
         pose_bones.append({
             "name": pb.name,
             "location": list(pb.location),
             "rotation_quaternion": list(pb.rotation_quaternion),
             "scale": list(pb.scale),
-            "world_matrix": [list(row) for row in pb.matrix],
+            "world_matrix": [list(row) for row in pose_world_matrix],
         })
     return {"pose_bones": pose_bones}
 
@@ -143,13 +156,37 @@ def _collect_spatial(scene):
         for j in range(i + 1, len(meshes)):
             d = (meshes[i].location - meshes[j].location).length
             distances.append({
-                "from": meshes[i].name,
-                "to": meshes[j].name,
+                "from_actor": meshes[i].name,
+                "to_actor": meshes[j].name,
                 "distance": round(d, 4),
             })
     return {
         "camera": cam_data or {"name": "", "location": [0, 0, 0], "rotation_euler": [0, 0, 0], "focal_length": 50},
         "actor_distances": distances,
+    }
+
+
+def collect_animation(frame_start=None, frame_end=None, step=1, target="all", simplified=True):
+    scene = bpy.context.scene
+    original_frame = scene.frame_current
+    start = scene.frame_start if frame_start is None else int(frame_start)
+    end = scene.frame_end if frame_end is None else int(frame_end)
+    step = max(1, int(step))
+    frames = []
+    for frame in range(start, end + 1, step):
+        scene.frame_set(frame)
+        frames.append(collect_scene(target=target, simplified=simplified))
+    scene.frame_set(original_frame)
+    return {
+        "meta": {
+            "kind": "animation_state",
+            "frame_start": start,
+            "frame_end": end,
+            "frame_step": step,
+            "fps": scene.render.fps,
+            "frame_count": len(frames),
+        },
+        "frames": frames,
     }
 
 

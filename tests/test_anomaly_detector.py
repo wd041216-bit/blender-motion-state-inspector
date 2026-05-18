@@ -26,7 +26,7 @@ def test_floating():
         joint_angles={},
         bbox_aspect_yx=1.8,
         bbox_aspect_yz=1.8,
-        foot_ground_clearance=0.08,
+        foot_ground_clearance=0.2,
         is_jumping=False,
     )
     assert any(a["type"] == "floating" for a in result)

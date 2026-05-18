@@ -3,8 +3,8 @@ from analyzer.loader import SceneState
 from typing import Dict, List
 
 def _bbox_center(actor):
-    bmin = actor.mesh.bbox_min
-    bmax = actor.mesh.bbox_max
+    bmin = actor.mesh.bbox_world_min or actor.mesh.bbox_min
+    bmax = actor.mesh.bbox_world_max or actor.mesh.bbox_max
     return [(a + b) / 2 for a, b in zip(bmin, bmax)]
 
 def _dist(a, b):
@@ -18,8 +18,8 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
         for j in range(i + 1, len(names)):
             d = _dist(centers[names[i]], centers[names[j]])
             distances.append({
-                "from": names[i],
-                "to": names[j],
+                "from_actor": names[i],
+                "to_actor": names[j],
                 "distance": round(d, 4),
             })
     cam = scene.spatial.camera

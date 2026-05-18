@@ -1,10 +1,82 @@
-# 3D Motion State Inspector
+# Blender Motion State Inspector
+
+[![Tests](https://github.com/wd041216-bit/blender-motion-state-inspector/actions/workflows/tests.yml/badge.svg)](https://github.com/wd041216-bit/blender-motion-state-inspector/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![Blender 4.0+](https://img.shields.io/badge/Blender-4.0%2B-orange.svg)](https://www.blender.org/)
 
 A tool that converts 3D character models, armatures, actions, materials, and scene relationships into LLM-readable structured state reports.
 
 It answers: What is the current form and posture of this 3D character? How is it moving? Are there any anomalies (inverted joints, floating, squashing)? What is the spatial relationship with the scene, props, and other actors?
 
 **It does NOT generate animations or fix models.** It reports facts. QA, retarget, animation alignment, and story acceptance are downstream applications.
+
+---
+
+## Why This Exists
+
+LLM agents are increasingly asked to inspect avatars, retargeted motion, game scenes, robotics simulations, and digital-human assets. Screenshots are useful, but they are ambiguous: a model can be facing backward, slightly floating, folded at the waist, or misclassified as a prop, and a text-only agent has to guess.
+
+Blender Motion State Inspector turns a `.blend`, `.glb`, `.gltf`, or `.fbx` scene into structured facts:
+
+- character vs prop/helper/floor classification
+- normalized morphology: height, vertical extent, width, depth, unit scale
+- Mixamo-friendly skeleton semantics
+- facing/up/side/foot-forward vectors with confidence
+- ground clearance and contact facts
+- single-frame reports and multi-frame JSONL diagnostics
+
+The goal is simple: make 3D state readable by agents without requiring them to stare at pixels.
+
+---
+
+## Quick Demo
+
+Collect a single frame:
+
+```bash
+blender --background --python scripts/collect_blender_state.py -- \
+  --input scene.blend \
+  --output raw_state.json \
+  --frame 120
+
+python -m analyzer.cli raw_state.json \
+  --output-md report.md \
+  --output-json report.json
+```
+
+Sample a motion:
+
+```bash
+blender --background --python scripts/collect_blender_state.py -- \
+  --input scene.blend \
+  --output animation_state.json \
+  --frame-start 1 \
+  --frame-end 400 \
+  --frame-step 20
+
+python -m analyzer.cli animation_state.json \
+  --output-md report.md \
+  --output-json report.json \
+  --output-jsonl frame_diagnostics.jsonl
+```
+
+Example frame diagnostic:
+
+```json
+{
+  "frame": 161,
+  "actor": "Avatar",
+  "pose_state": "伸展",
+  "facing": {
+    "vector": [-0.10087, -0.994312, 0.034185],
+    "source": "torso_cross_validated_by_toes",
+    "confidence": 0.9
+  },
+  "ground_clearance_m": 0.0968,
+  "anomalies": []
+}
+```
 
 ---
 
@@ -18,13 +90,32 @@ Blender (3D Viewport)
 
 CLI Analyzer (pip installable)
   ├─ Loader: raw_state.json → Python dataclasses
+  ├─ Actor Classifier: character vs prop/helper/floor filtering
   ├─ Morphology: body proportions from bbox + bones
   ├─ Skeleton Semantics: bone name pattern matching
+  ├─ Facing: torso/head/foot forward vectors and confidence
   ├─ Pose Classifier: rule-based posture detection
   ├─ Anomaly Detector: joint inversion, floating, squashing
   ├─ Spatial: distance, orientation, camera calc
   ├─ Contact Detector: ground contact / collision
   └─ Formatter: Markdown + JSON report output
+```
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/wd041216-bit/blender-motion-state-inspector.git
+cd blender-motion-state-inspector
+python -m pip install -e .
+```
+
+Verify:
+
+```bash
+blender-state-inspector --help
+python -m pytest tests/test_loader.py tests/test_morphology.py tests/test_skeleton_semantics.py tests/test_spatial.py tests/test_contact_detector.py tests/test_anomaly_detector.py tests/test_pose_classifier.py tests/test_formatter.py tests/test_cli.py tests/test_actor_classifier.py -q
 ```
 
 ---
@@ -79,6 +170,33 @@ blender-state-inspector --help
    {"status": "ok", "path": "/tmp/bmsi_xxx_raw_state.json", "elapsed_ms": 500}
    ```
 4. Run CLI analyzer on the returned path
+
+### 5. Use Headless From Blender
+
+For automated pipelines, collect state without opening the addon UI:
+
+```bash
+blender --background --python scripts/collect_blender_state.py -- \
+  --input scene.blend \
+  --output raw_state.json \
+  --frame 120
+```
+
+Sample an animation range:
+
+```bash
+blender --background --python scripts/collect_blender_state.py -- \
+  --input scene.blend \
+  --output animation_state.json \
+  --frame-start 1 \
+  --frame-end 400 \
+  --frame-step 20
+
+python -m analyzer.cli animation_state.json \
+  --output-md report.md \
+  --output-json report.json \
+  --output-jsonl frame_diagnostics.jsonl
+```
 
 ---
 
@@ -292,6 +410,11 @@ This project includes `SKILL.md` for Claude Code / Codex agents.
 | Mesh bbox, vertex count, materials | ✅ |
 | Armature bones, hierarchy, world coords | ✅ |
 | Pose bones, rotation, location | ✅ |
+| Headless `.blend/.glb/.gltf/.fbx` state collection | ✅ |
+| Animation range sampling + JSONL diagnostics | ✅ |
+| Character vs scene prop classification | ✅ |
+| Mixamo namespace/CamelCase skeleton mapping | ✅ |
+| Facing vector inference from torso + toes | ✅ |
 | Body proportions (height, arm/leg length) | ✅ |
 | Skeleton semantic mapping | ✅ |
 | Pose classification (standing/inverted/bent/etc) | ✅ |
@@ -303,9 +426,36 @@ This project includes `SKILL.md` for Claude Code / Codex agents.
 | Markdown + JSON report | ✅ |
 | Docker headless test | ✅ |
 
+## Integrating With Agentic 3D Workflows
+
+Use this as the inspection layer between generation and acceptance:
+
+```text
+Blender / GLB / FBX / animation source
+        ↓
+collect_blender_state.py
+        ↓
+raw_state.json or animation_state.json
+        ↓
+analyzer CLI
+        ↓
+LLM-readable facts
+        ↓
+accept / retry / retarget / camera fix / floor fix / parameter tuning
+```
+
+It is useful for:
+
+- avatar retargeting QA
+- motion generation acceptance gates
+- game character checks
+- digital human pipelines
+- Blender add-on automation
+- multi-actor scene debugging
+
 ## Known Limitations / V1 Exclusions
 
-- No animation curve sampling (current frame only)
+- Animation sampling is frame-step based; no dense curve analysis yet
 - No physics state capture (cloth, soft body)
 - No automatic keyframe selection
 - No multi-viewpoint screenshots
@@ -315,15 +465,27 @@ This project includes `SKILL.md` for Claude Code / Codex agents.
 
 ## Roadmap
 
-- [ ] MCP Server protocol support
-- [ ] Real-time frame-change listeners
-- [ ] Animation curve sampling
 - [ ] Automatic keyframe selection + screenshots
-- [ ] Skeleton/bbox overlay rendering
-- [ ] Shape key values
+- [ ] Skeleton/bbox/trajectory overlay rendering
+- [ ] Dense animation curve analysis
+- [ ] Shape key values and material diagnostics
+- [ ] MCP server protocol support
+- [ ] Real-time frame-change listeners
 - [ ] Token-based socket authentication
-- [ ] Non-Blender DCC support (Maya, etc.)
+- [ ] Non-Blender DCC support
 
 ## License
 
 MIT
+
+## Contributing
+
+Pull requests are welcome. The highest-impact areas are:
+
+- new skeleton naming conventions
+- better facing inference
+- more robust contact detection
+- animation event clustering
+- screenshots and overlays
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).

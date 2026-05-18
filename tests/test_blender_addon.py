@@ -3,8 +3,8 @@ import json
 import sys
 import os
 
-addon_path = os.path.join(os.path.dirname(__file__), "..", "addon")
-sys.path.insert(0, addon_path)
+repo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, repo_path)
 
 from addon.collector import collect_scene
 

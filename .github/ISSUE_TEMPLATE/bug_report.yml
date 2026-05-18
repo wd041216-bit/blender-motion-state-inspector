@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a bad inspection, crash, or wrong model state.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the incorrect output or crash.
+    validations:
+      required: true
+  - type: textarea
+    id: asset
+    attributes:
+      label: Asset or scene type
+      description: Tell us whether this is .blend, .glb, .gltf, .fbx, Mixamo, SMPL-X, etc.
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Paste the command you ran.
+      render: bash
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Paste report snippets or traceback.
+      render: text

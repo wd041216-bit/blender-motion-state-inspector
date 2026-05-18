@@ -24,6 +24,9 @@ class MeshData:
     has_armature_modifier: bool
     armature_name: Optional[str]
     vertex_groups_count: int
+    bbox_world_min: Optional[List[float]] = None
+    bbox_world_max: Optional[List[float]] = None
+    dimensions: Optional[List[float]] = None
 
 @dataclass
 class BoneData:
@@ -90,6 +93,22 @@ class SceneState:
     actors: List[Actor]
     spatial: SpatialData
 
+def _load_mesh(data: dict) -> MeshData:
+    return MeshData(
+        vertex_count=data.get("vertex_count", 0),
+        face_count=data.get("face_count", 0),
+        edge_count=data.get("edge_count", 0),
+        bbox_min=data.get("bbox_min", [0.0, 0.0, 0.0]),
+        bbox_max=data.get("bbox_max", [0.0, 0.0, 0.0]),
+        bbox_world_min=data.get("bbox_world_min"),
+        bbox_world_max=data.get("bbox_world_max"),
+        dimensions=data.get("dimensions"),
+        materials=data.get("materials", []),
+        has_armature_modifier=data.get("has_armature_modifier", False),
+        armature_name=data.get("armature_name"),
+        vertex_groups_count=data.get("vertex_groups_count", 0),
+    )
+
 def _load_bone(data: dict) -> BoneData:
     return BoneData(
         name=data["name"],
@@ -106,7 +125,7 @@ def _load_bone(data: dict) -> BoneData:
     )
 
 def _load_actor(data: dict) -> Actor:
-    mesh_data = MeshData(**data["mesh"])
+    mesh_data = _load_mesh(data["mesh"])
     arm_data = ArmatureData(
         bone_count=data["armature"]["bone_count"],
         bones=[_load_bone(b) for b in data["armature"]["bones"]],
@@ -131,8 +150,15 @@ def load_raw_state(source: str | dict) -> SceneState:
         data = source
     meta = SceneMeta(**data["meta"])
     actors = [_load_actor(a) for a in data["actors"]]
+    actor_distances = []
+    for ad in data["spatial"].get("actor_distances", []):
+        actor_distances.append(ActorDistance(
+            from_actor=ad.get("from_actor", ad.get("from", "")),
+            to_actor=ad.get("to_actor", ad.get("to", "")),
+            distance=ad.get("distance", 0.0),
+        ))
     spatial = SpatialData(
         camera=CameraData(**data["spatial"]["camera"]),
-        actor_distances=[ActorDistance(**ad) for ad in data["spatial"].get("actor_distances", [])],
+        actor_distances=actor_distances,
     )
     return SceneState(meta=meta, actors=actors, spatial=spatial)

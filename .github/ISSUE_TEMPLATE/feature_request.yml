@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a new inspection capability.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What should the inspector understand that it currently misses?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the new metric, report field, detector, or workflow.
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example output
+      description: Show the JSON or Markdown shape you would like.
+      render: json

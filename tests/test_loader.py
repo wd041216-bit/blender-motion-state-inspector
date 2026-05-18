@@ -58,3 +58,10 @@ def test_load_raw_state_from_json(tmp_path):
     path.write_text(json.dumps(SAMPLE_RAW), encoding="utf-8")
     scene = load_raw_state(str(path))
     assert scene.meta.scene_name == "untitled"
+
+def test_load_legacy_actor_distance_schema():
+    raw = json.loads(json.dumps(SAMPLE_RAW))
+    raw["spatial"]["actor_distances"] = [{"from": "A", "to": "B", "distance": 1.25}]
+    scene = load_raw_state(raw)
+    assert scene.spatial.actor_distances[0].from_actor == "A"
+    assert scene.spatial.actor_distances[0].to_actor == "B"

@@ -3,7 +3,7 @@
 [![Tests](https://github.com/wd041216-bit/blender-motion-state-inspector/actions/workflows/tests.yml/badge.svg)](https://github.com/wd041216-bit/blender-motion-state-inspector/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
-[![Blender 4.0+](https://img.shields.io/badge/Blender-4.0%2B-orange.svg)](https://www.blender.org/)
+[![Blender 4.2+](https://img.shields.io/badge/Blender-4.2%2B-orange.svg)](https://www.blender.org/)
 
 A tool that converts 3D character models, armatures, actions, materials, and scene relationships into LLM-readable structured state reports.
 
@@ -25,6 +25,7 @@ Blender Motion State Inspector turns a `.blend`, `.glb`, `.gltf`, or `.fbx` scen
 - facing/up/side/foot-forward vectors with confidence
 - ground clearance and contact facts
 - single-frame reports and multi-frame JSONL diagnostics
+- temporal clipping checks with pass/fail verdicts and failing-frame spatial details
 
 The goal is simple: make 3D state readable by agents without requiring them to stare at pixels.
 
@@ -103,7 +104,7 @@ Example frame diagnostic:
 Blender (3D Viewport)
   ├─ N-Panel UI: "Motion State" tab
   ├─ Collector: bpy scene traversal → raw_state.json
-  └─ Socket Server: TCP 127.0.0.1:9658 (remote agent triggering)
+  └─ Socket Server: TCP 127.0.0.1:9658 (subprocess bridge + Blender timer service)
 
 CLI Analyzer (pip installable)
   ├─ Loader: raw_state.json → Python dataclasses
@@ -115,6 +116,7 @@ CLI Analyzer (pip installable)
   ├─ Anomaly Detector: joint inversion, floating, squashing
   ├─ Spatial: distance, orientation, camera calc
   ├─ Contact Detector: ground contact / collision
+  ├─ Clip Detector: temporal bbox/ground penetration pass-fail diagnostics
   └─ Formatter: Markdown + JSON report output
 ```
 
@@ -132,7 +134,7 @@ Verify:
 
 ```bash
 blender-state-inspector --help
-python -m pytest tests/test_loader.py tests/test_morphology.py tests/test_skeleton_semantics.py tests/test_spatial.py tests/test_contact_detector.py tests/test_anomaly_detector.py tests/test_pose_classifier.py tests/test_formatter.py tests/test_cli.py tests/test_actor_classifier.py -q
+python -m pytest tests/test_loader.py tests/test_morphology.py tests/test_skeleton_semantics.py tests/test_spatial.py tests/test_contact_detector.py tests/test_clip_detector.py tests/test_anomaly_detector.py tests/test_pose_classifier.py tests/test_formatter.py tests/test_cli.py tests/test_actor_classifier.py -q
 ```
 
 ---
@@ -140,7 +142,7 @@ python -m pytest tests/test_loader.py tests/test_morphology.py tests/test_skelet
 ## Quick Start
 
 ### Prerequisites
-- Blender 4.0+
+- Blender 4.2+
 - Python 3.11+
 - Docker (optional, for headless testing)
 
@@ -159,9 +161,13 @@ blender-state-inspector --help
 
 ### 2. Install the Blender Addon
 
-1. Zip the `addon/` folder: `zip -r addon.zip addon/`
+1. Build the extension package:
+   ```bash
+   mkdir -p dist
+   blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
+   ```
 2. In Blender: Edit → Preferences → Add-ons → Install...
-3. Select `addon.zip`
+3. Select `dist/motion_state_inspector-0.1.1.zip`
 4. Enable "3D View: Motion State Inspector"
 5. Open the N-Panel (press N) → "Motion State" tab
 
@@ -172,6 +178,7 @@ The `addon/` directory includes a `blender_manifest.toml` for Blender's extensio
 ```bash
 blender --command extension validate addon --valid-tags=""
 blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
+blender --command extension validate dist/motion_state_inspector-0.1.1.zip --valid-tags=""
 ```
 
 This produces a local extension package that can be reviewed before submission to the Blender Extensions platform.
@@ -198,6 +205,10 @@ This produces a local extension package that can be reviewed before submission t
    {"status": "ok", "path": "/tmp/bmsi_xxx_raw_state.json", "elapsed_ms": 500}
    ```
 4. Run CLI analyzer on the returned path
+
+The socket listener runs in a separate Python subprocess. Blender scene
+collection still runs on Blender's main thread via `bpy.app.timers`, avoiding
+in-process Python threading inside Blender.
 
 ### 5. Use Headless From Blender
 
@@ -253,18 +264,20 @@ blender-motion-state-inspector/
 │   ├── __init__.py                 # Addon registration
 │   ├── collector.py                # bpy scene traversal → raw_state.json
 │   ├── panel.py                    # N-Panel UI
-│   ├── socket_server.py            # Background TCP server
+│   ├── socket_server.py            # Blender-side subprocess/timer bridge
+│   ├── socket_server_process.py    # Pure Python local TCP subprocess
 │   └── utils.py                    # Blender helpers
 ├── analyzer/                       # CLI analyzer (pip installable)
 │   ├── __init__.py
 │   ├── cli.py                      # Entry point: blender-state-inspector
 │   ├── loader.py                   # raw_state.json → dataclasses
 │   ├── morphology.py               # Body proportion calculations
-│   ├── skeleton_semantics.py     # Bone naming pattern matching
+│   ├── skeleton_semantics.py       # Bone naming pattern matching
 │   ├── pose_classifier.py          # Posture detection rules
 │   ├── anomaly_detector.py         # Issue detection thresholds
 │   ├── spatial.py                  # Distance/orientation/camera
 │   ├── contact_detector.py         # Ground contact / collision
+│   ├── clip_detector.py            # Temporal clipping pass/fail diagnostics
 │   └── formatter.py                # JSON + Markdown output
 ├── tests/                          # Test suite
 │   ├── test_loader.py
@@ -274,6 +287,7 @@ blender-motion-state-inspector/
 │   ├── test_anomaly_detector.py
 │   ├── test_spatial.py
 │   ├── test_contact_detector.py
+│   ├── test_clip_detector.py
 │   ├── test_formatter.py
 │   ├── test_cli.py
 │   ├── test_blender_addon.py       # Headless Blender integration test
@@ -360,6 +374,42 @@ The collector exports a single JSON file with this schema:
 blender-state-inspector <raw_state.json> --output-md report.md --output-json report.json
 ```
 
+For animation-state input, add a temporal clipping gate:
+
+```bash
+blender-state-inspector animation_state.json \
+  --clip-check \
+  --clip-tolerance 0.01 \
+  --clip-frame-start 40 \
+  --clip-frame-end 96 \
+  --output-md report.md \
+  --output-json report.json
+```
+
+`clip_check.verdict` is `pass` when the requested time window has no detected
+clipping. When it is `fail`, the JSON contains the failing frames and spatial
+details:
+
+```json
+{
+  "clip_check": {
+    "verdict": "fail",
+    "events": [
+      {
+        "type": "bbox_overlap",
+        "frame": 72,
+        "actors": ["Character_A", "Prop_B"],
+        "overlap": {
+          "penetration_depth": 0.034,
+          "center": [0.12, -0.03, 0.84],
+          "axes": {"x": 0.034, "y": 0.12, "z": 0.31}
+        }
+      }
+    ]
+  }
+}
+```
+
 ### Analyzer Output (report.json)
 
 ```json
@@ -414,8 +464,10 @@ docker run --rm -v "$(pwd):/workspace" -e PYTHONPATH=/workspace blender-motion-s
 ### Build Addon Zip
 
 ```bash
-cd addon
-zip -r ../motion_state_inspector.zip .
+mkdir -p dist
+blender --command extension validate addon --valid-tags=""
+blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
+blender --command extension validate dist/motion_state_inspector-0.1.1.zip --valid-tags=""
 ```
 
 ### Install for Development
@@ -457,6 +509,7 @@ This project includes `SKILL.md` for Claude Code / Codex agents.
 | Pose bones, rotation, location | ✅ |
 | Headless `.blend/.glb/.gltf/.fbx` state collection | ✅ |
 | Animation range sampling + JSONL diagnostics | ✅ |
+| Temporal clipping pass/fail check | ✅ |
 | Character vs scene prop classification | ✅ |
 | Mixamo namespace/CamelCase skeleton mapping | ✅ |
 | Facing vector inference from torso + toes | ✅ |
@@ -501,11 +554,11 @@ It is useful for:
 ## Known Limitations / V1 Exclusions
 
 - Animation sampling is frame-step based; no dense curve analysis yet
+- Temporal clipping detection currently uses world-space AABB overlap and ground penetration checks; it is not triangle-level mesh intersection yet
 - No physics state capture (cloth, soft body)
 - No automatic keyframe selection
 - No multi-viewpoint screenshots
 - No skeleton/bbox/trajectory overlay rendering
-- Socket server uses fixed 0.5s wait (needs completion signal)
 - Pose classification uses simplified heuristic
 
 ## Roadmap
@@ -513,6 +566,7 @@ It is useful for:
 - [ ] Automatic keyframe selection + screenshots
 - [ ] Skeleton/bbox/trajectory overlay rendering
 - [ ] Dense animation curve analysis
+- [ ] Triangle-level mesh intersection for temporal clipping
 - [ ] Shape key values and material diagnostics
 - [ ] MCP server protocol support
 - [ ] Real-time frame-change listeners

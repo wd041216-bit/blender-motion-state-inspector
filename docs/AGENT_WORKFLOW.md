@@ -33,6 +33,17 @@ The agent reads:
 - contacts
 - anomalies
 
+## Blender Extension Packaging
+
+The interactive add-on can be validated and packaged with Blender's extension CLI:
+
+```bash
+blender --command extension validate addon --valid-tags=""
+blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
+```
+
+The package is intended for review through the Blender Extensions platform rather than as a Blender core patch.
+
 ## Motion Gate
 
 Use when an action needs to be checked across a frame range.

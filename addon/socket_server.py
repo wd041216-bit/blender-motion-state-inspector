@@ -2,7 +2,11 @@ import json
 import socketserver
 import threading
 import bpy
-from addon.collector import collect_scene, write_raw_state
+
+try:
+    from .collector import collect_scene, write_raw_state
+except ImportError:  # Support direct source-tree execution.
+    from addon.collector import collect_scene, write_raw_state
 
 HOST = "127.0.0.1"
 PORT = 9658

@@ -148,6 +148,17 @@ blender-state-inspector --help
 4. Enable "3D View: Motion State Inspector"
 5. Open the N-Panel (press N) → "Motion State" tab
 
+### 2b. Build as a Blender Extension
+
+The `addon/` directory includes a `blender_manifest.toml` for Blender's extension tooling:
+
+```bash
+blender --command extension validate addon --valid-tags=""
+blender --command extension build --source-dir addon --output-dir dist --valid-tags=""
+```
+
+This produces a local extension package that can be reviewed before submission to the Blender Extensions platform.
+
 ### 3. Use from Blender (Manual)
 
 1. Open a scene with a rigged character

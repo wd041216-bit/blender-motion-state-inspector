@@ -1,0 +1,28 @@
+schema_version = "1.0.0"
+
+id = "motion_state_inspector"
+version = "0.1.0"
+name = "Motion State Inspector"
+tagline = "Export LLM-readable model, skeleton, and motion state reports"
+maintainer = "wd041216-bit"
+type = "add-on"
+
+website = "https://github.com/wd041216-bit/blender-motion-state-inspector"
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:MIT",
+]
+
+tags = ["Animation", "Import-Export"]
+
+[permissions]
+files = "Write raw scene state JSON reports to disk"
+network = "Expose an optional local TCP inspection server"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/*.zip",
+]

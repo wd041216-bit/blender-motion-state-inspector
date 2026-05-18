@@ -10,7 +10,11 @@ bl_info = {
 }
 
 import bpy
-from addon.panel import register as panel_register, unregister as panel_unregister
+
+try:
+    from .panel import register as panel_register, unregister as panel_unregister
+except ImportError:  # Support direct source-tree execution in older tests.
+    from addon.panel import register as panel_register, unregister as panel_unregister
 
 def register():
     panel_register()

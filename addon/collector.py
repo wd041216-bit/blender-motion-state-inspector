@@ -3,7 +3,11 @@ import tempfile
 from pathlib import Path
 import bpy
 from mathutils import Vector
-from addon.utils import ensure_object_mode, get_evaluated_mesh
+
+try:
+    from .utils import ensure_object_mode, get_evaluated_mesh
+except ImportError:  # Support direct source-tree execution.
+    from addon.utils import ensure_object_mode, get_evaluated_mesh
 
 
 def collect_scene(target="all", simplified=False):

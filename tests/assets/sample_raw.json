@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "blender_version": "4.2.0",
+    "scene_name": "test_scene",
+    "current_frame": 1,
+    "fps": 24,
+    "frame_start": 1,
+    "frame_end": 250,
+    "render_engine": "CYCLES"
+  },
+  "actors": [
+    {
+      "name": "TestHuman",
+      "type": "MESH",
+      "visible": true,
+      "world_matrix": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+      "mesh": {
+        "vertex_count": 1000,
+        "face_count": 900,
+        "edge_count": 1900,
+        "bbox_min": [-0.45, -0.15, 0.0],
+        "bbox_max": [0.45, 0.15, 1.75],
+        "materials": ["Skin"],
+        "has_armature_modifier": true,
+        "armature_name": "Armature",
+        "vertex_groups_count": 20
+      },
+      "armature": {
+        "bone_count": 5,
+        "bones": [
+          {"name": "root", "parent": null, "head": [0,0,0], "tail": [0,0,0.1], "world_head": [0,0,0], "world_tail": [0,0,0.1], "length": 0.1, "is_deform": true},
+          {"name": "spine", "parent": "root", "head": [0,0,0.1], "tail": [0,0,0.6], "world_head": [0,0,0.1], "world_tail": [0,0,0.6], "length": 0.5, "is_deform": true},
+          {"name": "head", "parent": "spine", "head": [0,0,0.6], "tail": [0,0,0.75], "world_head": [0,0,0.6], "world_tail": [0,0,0.75], "length": 0.15, "is_deform": true},
+          {"name": "arm.L", "parent": "spine", "head": [0,0,0.5], "tail": [0.3,0,0.5], "world_head": [0,0,0.5], "world_tail": [0.3,0,0.5], "length": 0.3, "is_deform": true},
+          {"name": "thigh.L", "parent": "root", "head": [0,0,0], "tail": [0,0,-0.4], "world_head": [0,0,0], "world_tail": [0,0,-0.4], "length": 0.4, "is_deform": true}
+        ]
+      },
+      "pose": {
+        "pose_bones": []
+      }
+    }
+  ],
+  "spatial": {
+    "camera": {
+      "name": "Camera",
+      "location": [5, -5, 3],
+      "rotation_euler": [1.1, 0, 0.785],
+      "focal_length": 50
+    },
+    "actor_distances": []
+  }
+}

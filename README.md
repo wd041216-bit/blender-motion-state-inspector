@@ -103,14 +103,18 @@ Example frame diagnostic:
 ```
 Blender (3D Viewport)
   ├─ N-Panel UI: "Motion State" tab
-  ├─ Collector: bpy scene traversal → raw_state.json
-  └─ Socket Server: TCP 127.0.0.1:9658 (subprocess bridge + Blender timer service)
-
-CLI Analyzer (pip installable)
+  ├─ Collector: bpy scene traversal ──┐
+  └─ Socket Server: TCP 127.0.0.1     │
+                                      ▼
+Unity (Editor / Play Mode)      raw_state.json
+  └─ C# Exporter: UnityPlugin ────────┘
+                                      │
+                                      ▼
+CLI Analyzer (pip installable) <──────┘
   ├─ Loader: raw_state.json → Python dataclasses
   ├─ Actor Classifier: character vs prop/helper/floor filtering
   ├─ Morphology: body proportions from bbox + bones
-  ├─ Skeleton Semantics: bone name pattern matching
+  ├─ Skeleton Semantics: bone name pattern matching (Blender & Unity Mecanim support)
   ├─ Facing: torso/head/foot forward vectors and confidence
   ├─ Pose Classifier: rule-based posture detection
   ├─ Anomaly Detector: joint inversion, floating, squashing
@@ -254,14 +258,40 @@ is `pass`. If clipping is found, the report lists the failing frames with
 object names, overlap center, axis overlap depth, actor bounding boxes, and
 ground penetration depth.
 
+### 6. Use From Unity (C# Exporter Plugin)
+
+You can automatically capture and inspect the active scene state directly from the Unity Editor, without using Blender.
+
+#### Add the Exporter to Unity
+Copy the C# exporter script [addon/unity/UnityMotionStateExporter.cs](addon/unity/UnityMotionStateExporter.cs) into your Unity project's `Assets` folder (preferably under an `Editor` folder, e.g. `Assets/Editor/UnityMotionStateExporter.cs`).
+
+#### Export Current Frame
+1. Open your scene in Unity.
+2. In the top menu bar, click **Tools** > **Motion State Inspector** > **Export Current Frame**.
+3. Choose a folder and save the file (e.g., `raw_state.json`).
+
+The exporter automatically:
+- Traverses all active GameObjects containing `Animator` or `Renderer` components.
+- Extracts armature structure, joint positions, bounding boxes, vertex counts, materials, and active camera state.
+- Maps Unity's Left-Handed, Y-Up coordinate system `(X, Y, Z)` to Blender's Right-Handed, Z-Up coordinate system `(X, -Z, Y)` during export so that the generated file is fully compatible with the Python analyzer out of the box.
+- Serializes decimals using `CultureInfo.InvariantCulture` to prevent syntax errors in systems configured with European/non-US locales.
+
+#### Run Python Analyzer
+Analyze the exported file with the Python CLI:
+```bash
+blender-state-inspector raw_state.json --output-md report.md --output-json report.json
+```
+
 ---
 
 ## Project Structure
 
 ```
 blender-motion-state-inspector/
-├── addon/                          # Blender addon (runs inside Blender)
-│   ├── __init__.py                 # Addon registration
+├── addon/                          # Addons for Blender and Unity
+│   ├── unity/                      # Unity C# Exporter plugin
+│   │   └── UnityMotionStateExporter.cs
+│   ├── __init__.py                 # Blender Addon registration
 │   ├── collector.py                # bpy scene traversal → raw_state.json
 │   ├── panel.py                    # N-Panel UI
 │   ├── socket_server.py            # Blender-side subprocess/timer bridge
@@ -512,6 +542,8 @@ This project includes `SKILL.md` for Claude Code / Codex agents.
 | Temporal clipping pass/fail check | ✅ |
 | Character vs scene prop classification | ✅ |
 | Mixamo namespace/CamelCase skeleton mapping | ✅ |
+| Unity Mecanim Humanoid bone name mapping | ✅ |
+| Unity scene & camera state C# exporter | ✅ |
 | Facing vector inference from torso + toes | ✅ |
 | Body proportions (height, arm/leg length) | ✅ |
 | Skeleton semantic mapping | ✅ |

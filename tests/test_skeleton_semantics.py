@@ -60,3 +60,45 @@ def test_map_mixamo_namespace_and_camelcase():
     assert mapping["right_shin"] == "mixamorig:RightLeg"
     assert mapping["left_foot"] == "mixamorig:LeftFoot"
     assert mapping["right_toe"] == "mixamorig:RightToeBase"
+
+def test_map_unity_mecanim():
+    mapping = map_skeleton_semantics([
+        "Hips",
+        "Spine",
+        "Chest",
+        "UpperChest",
+        "Neck",
+        "Head",
+        "LeftShoulder",
+        "RightShoulder",
+        "LeftUpperArm",
+        "RightUpperArm",
+        "LeftLowerArm",
+        "RightLowerArm",
+        "LeftHand",
+        "RightHand",
+        "LeftUpperLeg",
+        "RightUpperLeg",
+        "LeftLowerLeg",
+        "RightLowerLeg",
+        "LeftFoot",
+        "RightFoot",
+        "LeftToes",
+        "RightToes",
+    ])
+    assert mapping["pelvis"] == "Hips"
+    assert mapping["head"] == "Head"
+    assert mapping["left_shoulder"] == "LeftShoulder"
+    assert mapping["right_shoulder"] == "RightShoulder"
+    assert mapping["left_arm"] == "LeftUpperArm"
+    assert mapping["right_arm"] == "RightUpperArm"
+    assert mapping["left_forearm"] == "LeftLowerArm"
+    assert mapping["right_forearm"] == "RightLowerArm"
+    assert mapping["left_thigh"] == "LeftUpperLeg"
+    assert mapping["right_thigh"] == "RightUpperLeg"
+    assert mapping["left_shin"] == "LeftLowerLeg"
+    assert mapping["right_shin"] == "RightLowerLeg"
+    assert mapping["left_foot"] == "LeftFoot"
+    assert mapping["right_foot"] == "RightFoot"
+    assert mapping["left_toe"] == "LeftToes"
+    assert mapping["right_toe"] == "RightToes"

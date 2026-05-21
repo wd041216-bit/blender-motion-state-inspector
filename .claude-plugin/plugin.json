@@ -1,0 +1,19 @@
+{
+  "name": "blender-motion-state-inspector",
+  "description": "Inspect Blender, GLB, GLTF, and FBX character scenes and convert avatar pose, facing, morphology, ground contact, clipping, and motion diagnostics into LLM-readable Markdown, JSON, and JSONL reports.",
+  "author": {
+    "name": "wd041216-bit",
+    "url": "https://github.com/wd041216-bit"
+  },
+  "homepage": "https://github.com/wd041216-bit/blender-motion-state-inspector",
+  "keywords": [
+    "blender",
+    "3d",
+    "animation",
+    "retargeting",
+    "motion-capture",
+    "avatars",
+    "qa",
+    "agents"
+  ]
+}

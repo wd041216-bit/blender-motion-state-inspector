@@ -9,7 +9,7 @@ from analyzer.morphology import calculate_morphology
 from analyzer.skeleton_semantics import map_skeleton_semantics
 from analyzer.pose_classifier import classify_pose
 from analyzer.anomaly_detector import detect_anomalies
-from analyzer.spatial import calculate_spatial_summary
+from analyzer.spatial import calculate_spatial_summary, evaluate_translation_locks
 from analyzer.spatial_packet import build_spatial_packet, build_timeline_spatial_packet
 from analyzer.contact_detector import detect_contacts
 from analyzer.formatter import format_json, format_markdown
@@ -184,6 +184,18 @@ def main(argv=None):
     parser.add_argument("--output-spatial-packet", default=None, help="Optional compact spatial packet JSON for agent context")
     parser.add_argument("--spatial-top-k", type=int, default=24, help="Maximum compact spatial relations to emit")
     parser.add_argument("--spatial-ego-actor", default=None, help="Prioritize relations touching an actor name token")
+    parser.add_argument(
+        "--translation-lock-pair",
+        action="append",
+        default=[],
+        help="Verify a constant translation relation using control=experiment actor name tokens.",
+    )
+    parser.add_argument(
+        "--translation-lock-tolerance",
+        type=float,
+        default=0.03,
+        help="Maximum allowed per-frame drift from the baseline translation, in scene meters.",
+    )
     parser.add_argument("--clip-check", action="store_true", help="Run temporal clipping/interpenetration pass-fail diagnostics")
     parser.add_argument("--clip-tolerance", type=float, default=0.0, help="Allowed overlap/penetration tolerance in scene units")
     parser.add_argument("--clip-frame-start", type=int, default=None, help="Optional first frame for temporal clip check")
@@ -209,6 +221,12 @@ def main(argv=None):
                 frame_start=args.clip_frame_start,
                 frame_end=args.clip_frame_end,
             )
+    if args.translation_lock_pair:
+        report["translation_locks"] = evaluate_translation_locks(
+            report,
+            pair_specs=args.translation_lock_pair,
+            tolerance=args.translation_lock_tolerance,
+        )
 
     Path(args.output_md).write_text(format_markdown(report), encoding="utf-8")
     Path(args.output_json).write_text(format_json(report), encoding="utf-8")

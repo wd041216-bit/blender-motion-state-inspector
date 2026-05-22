@@ -9,7 +9,12 @@ from analyzer.morphology import calculate_morphology
 from analyzer.skeleton_semantics import map_skeleton_semantics
 from analyzer.pose_classifier import classify_pose
 from analyzer.anomaly_detector import detect_anomalies
-from analyzer.spatial import calculate_spatial_summary, evaluate_translation_lock_groups, evaluate_translation_locks
+from analyzer.spatial import (
+    calculate_spatial_summary,
+    evaluate_orientation_lock_groups,
+    evaluate_translation_lock_groups,
+    evaluate_translation_locks,
+)
 from analyzer.spatial_packet import build_spatial_packet, build_timeline_spatial_packet
 from analyzer.contact_detector import detect_contacts
 from analyzer.formatter import format_json, format_markdown
@@ -205,6 +210,21 @@ def main(argv=None):
         default=0.03,
         help="Maximum allowed per-frame drift from the baseline translation, in scene meters.",
     )
+    parser.add_argument(
+        "--orientation-lock-group",
+        action="append",
+        default=[],
+        help=(
+            "Verify body/head/hand/foot orientation anchors, using the same "
+            "control_a,control_b=experiment_a,experiment_b actor-token format."
+        ),
+    )
+    parser.add_argument(
+        "--orientation-lock-tolerance-degrees",
+        type=float,
+        default=12.0,
+        help="Maximum allowed angle between matched orientation anchor axes.",
+    )
     parser.add_argument("--clip-check", action="store_true", help="Run temporal clipping/interpenetration pass-fail diagnostics")
     parser.add_argument("--clip-tolerance", type=float, default=0.0, help="Allowed overlap/penetration tolerance in scene units")
     parser.add_argument("--clip-frame-start", type=int, default=None, help="Optional first frame for temporal clip check")
@@ -241,6 +261,12 @@ def main(argv=None):
             report,
             group_specs=args.translation_lock_group,
             tolerance=args.translation_lock_tolerance,
+        )
+    if args.orientation_lock_group:
+        report["orientation_lock_groups"] = evaluate_orientation_lock_groups(
+            report,
+            group_specs=args.orientation_lock_group,
+            tolerance_degrees=args.orientation_lock_tolerance_degrees,
         )
 
     Path(args.output_md).write_text(format_markdown(report), encoding="utf-8")

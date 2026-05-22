@@ -20,6 +20,9 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
             "center": [round((a + b) / 2, 4) for a, b in zip(bmin, bmax)],
             "size": [round(abs(b - a), 4) for a, b in zip(bmin, bmax)],
         }
+        axis_z = _matrix_axis_z(actor.world_matrix)
+        if axis_z is not None:
+            bounds[actor.name]["axis_z"] = [_number(value, 6) for value in axis_z]
     distances = []
     names = list(centers.keys())
     for i in range(len(names)):
@@ -45,6 +48,8 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
 
 TRANSLATION_LOCK_SCHEMA = "motion_state_translation_locks.v1"
 TRANSLATION_LOCK_GROUP_SCHEMA = "motion_state_translation_lock_groups.v1"
+ORIENTATION_LOCK_GROUP_SCHEMA = "motion_state_orientation_lock_groups.v1"
+ORIENTATION_ANCHORS = ("body", "head", "left_hand", "right_hand", "left_foot", "right_foot")
 
 
 def _number(value: float, digits: int = 5) -> float:
@@ -122,6 +127,41 @@ def _distance(values: list[float]) -> float:
     return math.sqrt(sum(value * value for value in values))
 
 
+def _normalize(values: list[float]) -> list[float] | None:
+    if len(values) < 3:
+        return None
+    length = _distance(values[:3])
+    if length < 1e-8:
+        return None
+    return [float(value) / length for value in values[:3]]
+
+
+def _matrix_axis_z(world_matrix: list[list[float]]) -> list[float] | None:
+    if not isinstance(world_matrix, list) or len(world_matrix) < 3:
+        return None
+    try:
+        axis = [float(world_matrix[0][2]), float(world_matrix[1][2]), float(world_matrix[2][2])]
+    except (TypeError, IndexError, ValueError):
+        return None
+    return _normalize(axis)
+
+
+def _axis_z(bounds: dict[str, Any], name: str) -> list[float] | None:
+    value = bounds.get(name, {}).get("axis_z")
+    if isinstance(value, list):
+        return _normalize([float(item) for item in value[:3]])
+    return None
+
+
+def _angle_degrees(left: list[float], right: list[float]) -> float:
+    left_axis = _normalize(left)
+    right_axis = _normalize(right)
+    if left_axis is None or right_axis is None:
+        return 180.0
+    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(left_axis, right_axis))))
+    return math.degrees(math.acos(dot))
+
+
 def _mean_vector(vectors: list[list[float]]) -> list[float]:
     return [sum(vector[index] for vector in vectors) / len(vectors) for index in range(3)]
 
@@ -132,6 +172,22 @@ def _pairwise_distances(points: list[list[float]]) -> dict[tuple[int, int], floa
         for right in range(left + 1, len(points)):
             distances[(left, right)] = _distance(_vector_delta(points[left], points[right]))
     return distances
+
+
+def _control_orientation_token(control_token: str, anchor: str) -> str:
+    token = control_token
+    for prefix in ("control_mesh_", "control_skeleton_", "control_"):
+        if token.startswith(prefix):
+            token = token[len(prefix) :]
+            break
+    return f"control_orient_{token}_{anchor}"
+
+
+def _experiment_orientation_token(experiment_token: str, anchor: str) -> str:
+    token = experiment_token
+    if token.startswith("experiment_"):
+        token = token[len("experiment_") :]
+    return f"experiment_orient_{token}_{anchor}"
 
 
 def _max_pairwise_vector_distance(vectors: list[list[float]]) -> float:
@@ -340,6 +396,114 @@ def evaluate_translation_lock_groups(
         "principle": (
             "all matched experiment actors in a group must equal their controls plus one shared translation vector; "
             "intra-group distances must remain locked"
+        ),
+        "verdict": "pass" if groups and all(group["verdict"] == "pass" for group in groups) else "fail",
+        "groups": groups,
+    }
+
+
+def evaluate_orientation_lock_groups(
+    report: dict[str, Any],
+    group_specs: list[str],
+    tolerance_degrees: float = 12.0,
+    anchors: tuple[str, ...] = ORIENTATION_ANCHORS,
+) -> dict[str, Any]:
+    """Verify matched control/experiment anchors keep the same world-space orientation."""
+    frames = _frame_reports(report)
+    groups = []
+    for group_spec in group_specs:
+        control_tokens, experiment_tokens = _parse_group_spec(group_spec)
+        samples = []
+        missing = []
+        angle_errors = []
+
+        for frame in frames:
+            frame_number = frame.get("frame_info", {}).get("current")
+            bounds = _bounds(frame)
+            frame_missing = []
+            frame_errors: dict[str, float] = {}
+            pair_errors = []
+
+            for control_token, experiment_token in zip(control_tokens, experiment_tokens, strict=True):
+                for anchor in anchors:
+                    control_anchor_token = _control_orientation_token(control_token, anchor)
+                    experiment_anchor_token = _experiment_orientation_token(experiment_token, anchor)
+                    control_name = _match_actor_name(bounds, control_anchor_token)
+                    experiment_name = _match_actor_name(bounds, experiment_anchor_token)
+                    if not control_name or not experiment_name:
+                        frame_missing.append(
+                            {
+                                "anchor": anchor,
+                                "control": control_anchor_token if not control_name else control_name,
+                                "experiment": experiment_anchor_token if not experiment_name else experiment_name,
+                            }
+                        )
+                        continue
+                    control_axis = _axis_z(bounds, control_name)
+                    experiment_axis = _axis_z(bounds, experiment_name)
+                    if control_axis is None or experiment_axis is None:
+                        frame_missing.append(
+                            {
+                                "anchor": anchor,
+                                "control": control_name,
+                                "experiment": experiment_name,
+                                "reason": "missing_axis_z",
+                            }
+                        )
+                        continue
+                    angle = _angle_degrees(control_axis, experiment_axis)
+                    angle_errors.append(angle)
+                    pair_errors.append(
+                        {
+                            "control": control_name,
+                            "experiment": experiment_name,
+                            "anchor": anchor,
+                            "angle_error_degrees": _number(angle),
+                        }
+                    )
+                    key = anchor if len(control_tokens) == 1 else f"{experiment_token}:{anchor}"
+                    frame_errors[key] = _number(angle)
+
+            if frame_missing:
+                missing.append({"frame": frame_number, "anchors": frame_missing})
+                continue
+            samples.append(
+                {
+                    "frame": frame_number,
+                    "anchor_errors": frame_errors,
+                    "max_angle_error_degrees": _number(max(frame_errors.values(), default=0.0)),
+                    "pairs": pair_errors,
+                }
+            )
+
+        angle_summary = _summarize(angle_errors)
+        group_verdict = (
+            "pass"
+            if samples
+            and not missing
+            and angle_summary["max"] is not None
+            and angle_summary["max"] <= tolerance_degrees
+            else "fail"
+        )
+        groups.append(
+            {
+                "group": group_spec,
+                "control_tokens": control_tokens,
+                "experiment_tokens": experiment_tokens,
+                "anchors": list(anchors),
+                "tolerance_degrees": tolerance_degrees,
+                "anchor_angle_error_degrees": angle_summary,
+                "sample_count": len(samples),
+                "missing": missing,
+                "samples": samples[:24],
+                "verdict": group_verdict,
+            }
+        )
+    return {
+        "schema": ORIENTATION_LOCK_GROUP_SCHEMA,
+        "principle": (
+            "matched body, head, hand, and foot anchor axes must keep the same world-space orientation "
+            "as the corresponding control anchors"
         ),
         "verdict": "pass" if groups and all(group["verdict"] == "pass" for group in groups) else "fail",
         "groups": groups,

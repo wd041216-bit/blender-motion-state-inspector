@@ -44,6 +44,7 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
 
 
 TRANSLATION_LOCK_SCHEMA = "motion_state_translation_locks.v1"
+TRANSLATION_LOCK_GROUP_SCHEMA = "motion_state_translation_lock_groups.v1"
 
 
 def _number(value: float, digits: int = 5) -> float:
@@ -92,6 +93,20 @@ def _parse_pair_spec(pair_spec: str) -> tuple[str, str]:
     return left, right
 
 
+def _parse_group_spec(group_spec: str) -> tuple[list[str], list[str]]:
+    if "=" not in group_spec:
+        raise ValueError(f"Translation lock group must use controls=experiments format: {group_spec!r}")
+    left, right = group_spec.split("=", 1)
+    controls = [item.strip() for item in left.split(",") if item.strip()]
+    experiments = [item.strip() for item in right.split(",") if item.strip()]
+    if not controls or not experiments or len(controls) != len(experiments):
+        raise ValueError(
+            "Translation lock group must name the same number of control and experiment actor tokens: "
+            f"{group_spec!r}"
+        )
+    return controls, experiments
+
+
 def _center(bounds: dict[str, Any], name: str) -> list[float] | None:
     value = bounds.get(name, {}).get("center")
     if isinstance(value, list) and len(value) >= 3:
@@ -105,6 +120,24 @@ def _vector_delta(a: list[float], b: list[float]) -> list[float]:
 
 def _distance(values: list[float]) -> float:
     return math.sqrt(sum(value * value for value in values))
+
+
+def _mean_vector(vectors: list[list[float]]) -> list[float]:
+    return [sum(vector[index] for vector in vectors) / len(vectors) for index in range(3)]
+
+
+def _pairwise_distances(points: list[list[float]]) -> dict[tuple[int, int], float]:
+    distances: dict[tuple[int, int], float] = {}
+    for left in range(len(points)):
+        for right in range(left + 1, len(points)):
+            distances[(left, right)] = _distance(_vector_delta(points[left], points[right]))
+    return distances
+
+
+def _max_pairwise_vector_distance(vectors: list[list[float]]) -> float:
+    if len(vectors) < 2:
+        return 0.0
+    return max(_pairwise_distances(vectors).values(), default=0.0)
 
 
 def evaluate_translation_locks(
@@ -183,4 +216,131 @@ def evaluate_translation_locks(
         "principle": "experiment_center(frame) must equal control_center(frame) plus one constant translation vector",
         "verdict": "pass" if pairs and all(pair["verdict"] == "pass" for pair in pairs) else "fail",
         "pairs": pairs,
+    }
+
+
+def evaluate_translation_lock_groups(
+    report: dict[str, Any],
+    group_specs: list[str],
+    tolerance: float = 0.03,
+) -> dict[str, Any]:
+    """Verify a matched control/experiment actor set shares one group translation."""
+    frames = _frame_reports(report)
+    groups = []
+    for group_spec in group_specs:
+        control_tokens, experiment_tokens = _parse_group_spec(group_spec)
+        samples = []
+        missing = []
+        baseline_shared_translation = None
+        shared_drifts = []
+        member_spreads = []
+        distance_drifts = []
+
+        for frame in frames:
+            frame_number = frame.get("frame_info", {}).get("current")
+            bounds = _bounds(frame)
+            control_names = []
+            experiment_names = []
+            control_centers = []
+            experiment_centers = []
+            frame_missing = []
+            for control_token, experiment_token in zip(control_tokens, experiment_tokens, strict=True):
+                control_name = _match_actor_name(bounds, control_token)
+                experiment_name = _match_actor_name(bounds, experiment_token)
+                if not control_name or not experiment_name:
+                    frame_missing.append(
+                        {
+                            "control": control_token if not control_name else control_name,
+                            "experiment": experiment_token if not experiment_name else experiment_name,
+                        }
+                    )
+                    continue
+                control_center = _center(bounds, control_name)
+                experiment_center = _center(bounds, experiment_name)
+                if control_center is None or experiment_center is None:
+                    frame_missing.append({"control": control_name, "experiment": experiment_name})
+                    continue
+                control_names.append(control_name)
+                experiment_names.append(experiment_name)
+                control_centers.append(control_center)
+                experiment_centers.append(experiment_center)
+            if frame_missing:
+                missing.append({"frame": frame_number, "members": frame_missing})
+                continue
+            member_translations = [
+                _vector_delta(experiment_center, control_center)
+                for control_center, experiment_center in zip(control_centers, experiment_centers, strict=True)
+            ]
+            shared_translation = _mean_vector(member_translations)
+            if baseline_shared_translation is None:
+                baseline_shared_translation = shared_translation
+
+            shared_drift = _distance(_vector_delta(shared_translation, baseline_shared_translation))
+            member_spread = _max_pairwise_vector_distance(member_translations)
+            control_distances = _pairwise_distances(control_centers)
+            experiment_distances = _pairwise_distances(experiment_centers)
+            frame_distance_drifts = []
+            for key, control_distance in control_distances.items():
+                experiment_distance = experiment_distances.get(key)
+                if experiment_distance is None:
+                    continue
+                frame_distance_drifts.append(abs(experiment_distance - control_distance))
+            distance_drift = max(frame_distance_drifts, default=0.0)
+            shared_drifts.append(shared_drift)
+            member_spreads.append(member_spread)
+            distance_drifts.append(distance_drift)
+            samples.append(
+                {
+                    "frame": frame_number,
+                    "controls": control_names,
+                    "experiments": experiment_names,
+                    "shared_translation": [_number(value) for value in shared_translation],
+                    "member_translations": [[_number(value) for value in vector] for vector in member_translations],
+                    "shared_translation_drift_m": _number(shared_drift),
+                    "member_translation_spread_m": _number(member_spread),
+                    "intra_group_distance_drift_m": _number(distance_drift),
+                }
+            )
+
+        shared_summary = _summarize(shared_drifts)
+        spread_summary = _summarize(member_spreads)
+        distance_summary = _summarize(distance_drifts)
+        group_verdict = (
+            "pass"
+            if samples
+            and not missing
+            and shared_summary["max"] is not None
+            and shared_summary["max"] <= tolerance
+            and spread_summary["max"] is not None
+            and spread_summary["max"] <= tolerance
+            and distance_summary["max"] is not None
+            and distance_summary["max"] <= tolerance
+            else "fail"
+        )
+        groups.append(
+            {
+                "group": group_spec,
+                "control_tokens": control_tokens,
+                "experiment_tokens": experiment_tokens,
+                "baseline_shared_translation": (
+                    [_number(value) for value in baseline_shared_translation] if baseline_shared_translation else None
+                ),
+                "tolerance_m": tolerance,
+                "shared_translation_drift_m": shared_summary,
+                "member_translation_spread_m": spread_summary,
+                "intra_group_distance_drift_m": distance_summary,
+                "sample_count": len(samples),
+                "missing": missing,
+                "samples": samples[:24],
+                "verdict": group_verdict,
+            }
+        )
+    return {
+        "schema": TRANSLATION_LOCK_GROUP_SCHEMA,
+        "principle": (
+            "all matched experiment actors in a group must equal their controls plus one shared translation vector; "
+            "intra-group distances must remain locked"
+        ),
+        "verdict": "pass" if groups and all(group["verdict"] == "pass" for group in groups) else "fail",
+        "groups": groups,
     }

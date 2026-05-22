@@ -9,7 +9,7 @@ from analyzer.morphology import calculate_morphology
 from analyzer.skeleton_semantics import map_skeleton_semantics
 from analyzer.pose_classifier import classify_pose
 from analyzer.anomaly_detector import detect_anomalies
-from analyzer.spatial import calculate_spatial_summary, evaluate_translation_locks
+from analyzer.spatial import calculate_spatial_summary, evaluate_translation_lock_groups, evaluate_translation_locks
 from analyzer.spatial_packet import build_spatial_packet, build_timeline_spatial_packet
 from analyzer.contact_detector import detect_contacts
 from analyzer.formatter import format_json, format_markdown
@@ -191,6 +191,15 @@ def main(argv=None):
         help="Verify a constant translation relation using control=experiment actor name tokens.",
     )
     parser.add_argument(
+        "--translation-lock-group",
+        action="append",
+        default=[],
+        help=(
+            "Verify a whole group shares one translation and preserves intra-group distances, "
+            "using control_a,control_b=experiment_a,experiment_b actor tokens."
+        ),
+    )
+    parser.add_argument(
         "--translation-lock-tolerance",
         type=float,
         default=0.03,
@@ -225,6 +234,12 @@ def main(argv=None):
         report["translation_locks"] = evaluate_translation_locks(
             report,
             pair_specs=args.translation_lock_pair,
+            tolerance=args.translation_lock_tolerance,
+        )
+    if args.translation_lock_group:
+        report["translation_lock_groups"] = evaluate_translation_lock_groups(
+            report,
+            group_specs=args.translation_lock_group,
             tolerance=args.translation_lock_tolerance,
         )
 

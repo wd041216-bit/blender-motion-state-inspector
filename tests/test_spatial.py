@@ -101,12 +101,16 @@ def orientation_timeline_report(head_axis=None):
                 "actor_bounds": {
                     "control_orient_person0_body": anchor("control_orient_person0_body", [0.0, 0.0, 1.0]),
                     "control_orient_person0_head": anchor("control_orient_person0_head", [0.0, 0.0, 1.0]),
+                    "control_orient_person0_body_side": anchor("control_orient_person0_body_side", [0.0, 1.0, 0.0]),
+                    "control_orient_person0_head_side": anchor("control_orient_person0_head_side", [0.0, 1.0, 0.0]),
                     "control_orient_person0_left_hand": anchor("control_orient_person0_left_hand", [1.0, 0.0, 0.0]),
                     "control_orient_person0_right_hand": anchor("control_orient_person0_right_hand", [-1.0, 0.0, 0.0]),
                     "control_orient_person0_left_foot": anchor("control_orient_person0_left_foot", [0.0, 1.0, 0.0]),
                     "control_orient_person0_right_foot": anchor("control_orient_person0_right_foot", [0.0, 1.0, 0.0]),
                     "experiment_orient_maya_body": anchor("experiment_orient_maya_body", [0.0, 0.0, 1.0]),
                     "experiment_orient_maya_head": anchor("experiment_orient_maya_head", experiment_head_axis),
+                    "experiment_orient_maya_body_side": anchor("experiment_orient_maya_body_side", [0.0, 1.0, 0.0]),
+                    "experiment_orient_maya_head_side": anchor("experiment_orient_maya_head_side", [0.0, 1.0, 0.0]),
                     "experiment_orient_maya_left_hand": anchor("experiment_orient_maya_left_hand", [1.0, 0.0, 0.0]),
                     "experiment_orient_maya_right_hand": anchor("experiment_orient_maya_right_hand", [-1.0, 0.0, 0.0]),
                     "experiment_orient_maya_left_foot": anchor("experiment_orient_maya_left_foot", [0.0, 1.0, 0.0]),
@@ -196,6 +200,8 @@ def test_orientation_lock_groups_pass_when_anchor_axes_match():
     assert set(report["groups"][0]["anchors"]) == {
         "body",
         "head",
+        "body_side",
+        "head_side",
         "left_hand",
         "right_hand",
         "left_foot",
@@ -214,6 +220,23 @@ def test_orientation_lock_groups_fail_when_anchor_axis_drifts():
     assert report["groups"][0]["verdict"] == "fail"
     assert report["groups"][0]["anchor_angle_error_degrees"]["max"] == pytest.approx(90.0)
     assert report["groups"][0]["samples"][1]["anchor_errors"]["head"] == pytest.approx(90.0)
+
+
+def test_orientation_lock_groups_fail_when_body_side_is_mirrored():
+    report = orientation_timeline_report()
+    for frame in report["frame_reports"]:
+        frame["spatial"]["actor_bounds"]["experiment_orient_maya_body_side"]["axis_z"] = [0.0, -1.0, 0.0]
+        frame["spatial"]["actor_bounds"]["experiment_orient_maya_head_side"]["axis_z"] = [0.0, -1.0, 0.0]
+
+    result = evaluate_orientation_lock_groups(
+        report,
+        group_specs=["control_mesh_person0=experiment_maya"],
+        tolerance_degrees=5.0,
+    )
+
+    assert result["verdict"] == "fail"
+    assert result["groups"][0]["anchor_angle_error_degrees"]["max"] == pytest.approx(180.0)
+    assert result["groups"][0]["samples"][0]["anchor_errors"]["body_side"] == pytest.approx(180.0)
 
 
 def test_cli_embeds_translation_locks_for_timeline_reports(tmp_path):
@@ -455,12 +478,16 @@ def test_cli_embeds_orientation_lock_groups_for_timeline_reports(tmp_path):
                     for name in (
                         "control_orient_person0_body",
                         "control_orient_person0_head",
+                        "control_orient_person0_body_side",
+                        "control_orient_person0_head_side",
                         "control_orient_person0_left_hand",
                         "control_orient_person0_right_hand",
                         "control_orient_person0_left_foot",
                         "control_orient_person0_right_foot",
                         "experiment_orient_maya_body",
                         "experiment_orient_maya_head",
+                        "experiment_orient_maya_body_side",
+                        "experiment_orient_maya_head_side",
                         "experiment_orient_maya_left_hand",
                         "experiment_orient_maya_right_hand",
                         "experiment_orient_maya_left_foot",

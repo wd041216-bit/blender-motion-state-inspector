@@ -49,7 +49,7 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
 TRANSLATION_LOCK_SCHEMA = "motion_state_translation_locks.v1"
 TRANSLATION_LOCK_GROUP_SCHEMA = "motion_state_translation_lock_groups.v1"
 ORIENTATION_LOCK_GROUP_SCHEMA = "motion_state_orientation_lock_groups.v1"
-ORIENTATION_ANCHORS = ("body", "head", "left_hand", "right_hand", "left_foot", "right_foot")
+ORIENTATION_ANCHORS = ("body", "head", "body_side", "head_side", "left_hand", "right_hand", "left_foot", "right_foot")
 
 
 def _number(value: float, digits: int = 5) -> float:

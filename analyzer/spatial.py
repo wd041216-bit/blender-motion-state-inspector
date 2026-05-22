@@ -12,6 +12,14 @@ def _dist(a, b):
 
 def calculate_spatial_summary(scene: SceneState) -> Dict:
     centers = {a.name: _bbox_center(a) for a in scene.actors}
+    bounds = {}
+    for actor in scene.actors:
+        bmin = actor.mesh.bbox_world_min or actor.mesh.bbox_min
+        bmax = actor.mesh.bbox_world_max or actor.mesh.bbox_max
+        bounds[actor.name] = {
+            "center": [round((a + b) / 2, 4) for a, b in zip(bmin, bmax)],
+            "size": [round(abs(b - a), 4) for a, b in zip(bmin, bmax)],
+        }
     distances = []
     names = list(centers.keys())
     for i in range(len(names)):
@@ -31,4 +39,5 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
             "focal_length": cam.focal_length,
         },
         "actor_distances": distances,
+        "actor_bounds": bounds,
     }

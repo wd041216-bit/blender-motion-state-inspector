@@ -10,6 +10,7 @@ from analyzer.skeleton_semantics import map_skeleton_semantics
 from analyzer.pose_classifier import classify_pose
 from analyzer.anomaly_detector import detect_anomalies
 from analyzer.spatial import calculate_spatial_summary
+from analyzer.spatial_packet import build_spatial_packet, build_timeline_spatial_packet
 from analyzer.contact_detector import detect_contacts
 from analyzer.formatter import format_json, format_markdown
 from analyzer.facing import infer_facing
@@ -180,6 +181,9 @@ def main(argv=None):
     parser.add_argument("--output-md", default="report.md", help="Markdown output path")
     parser.add_argument("--output-json", default="report.json", help="JSON output path")
     parser.add_argument("--output-jsonl", default=None, help="Optional per-frame diagnostics JSONL path for animation_state input")
+    parser.add_argument("--output-spatial-packet", default=None, help="Optional compact spatial packet JSON for agent context")
+    parser.add_argument("--spatial-top-k", type=int, default=24, help="Maximum compact spatial relations to emit")
+    parser.add_argument("--spatial-ego-actor", default=None, help="Prioritize relations touching an actor name token")
     parser.add_argument("--clip-check", action="store_true", help="Run temporal clipping/interpenetration pass-fail diagnostics")
     parser.add_argument("--clip-tolerance", type=float, default=0.0, help="Allowed overlap/penetration tolerance in scene units")
     parser.add_argument("--clip-frame-start", type=int, default=None, help="Optional first frame for temporal clip check")
@@ -208,6 +212,20 @@ def main(argv=None):
 
     Path(args.output_md).write_text(format_markdown(report), encoding="utf-8")
     Path(args.output_json).write_text(format_json(report), encoding="utf-8")
+    if args.output_spatial_packet:
+        if "frame_reports" in report:
+            packet = build_timeline_spatial_packet(
+                report,
+                ego_actor=args.spatial_ego_actor,
+                top_k=args.spatial_top_k,
+            )
+        else:
+            packet = build_spatial_packet(
+                report,
+                ego_actor=args.spatial_ego_actor,
+                top_k=args.spatial_top_k,
+            )
+        Path(args.output_spatial_packet).write_text(json.dumps(packet, indent=2, ensure_ascii=False), encoding="utf-8")
     if args.output_jsonl and "frame_diagnostics" in report:
         Path(args.output_jsonl).write_text(
             "\n".join(json.dumps(row, ensure_ascii=False) for row in report["frame_diagnostics"]),

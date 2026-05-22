@@ -70,6 +70,32 @@ The agent reads:
 - facing changes
 - anomaly ranges
 
+## Compact Spatial Packet
+
+Use when a text-only agent needs spatial context without reading the full raw
+state or every frame report.
+
+```bash
+python -m analyzer.cli animation_state.json \
+  --output-md report.md \
+  --output-json report.json \
+  --output-jsonl frame_diagnostics.jsonl \
+  --output-spatial-packet spatial_packet.json \
+  --spatial-ego-actor "Chad" \
+  --spatial-top-k 24
+```
+
+The packet writes stable actor IDs, compact bboxes, actor-centric relation
+labels, nearest relation rows, and merged temporal pose ranges. Agents should
+read `spatial_packet.json` first for scene navigation, then fall back to
+`report.json` or `frame_diagnostics.jsonl` only when they need full evidence.
+
+Important fields:
+
+- `actors`: stable IDs, classes, pose, bbox, facing basis, contacts.
+- `relations`: top-K pairwise spatial relations such as `front_right_mid`.
+- `temporal_events`: merged pose ranges for timeline reports.
+
 ## Recommended Decision Policy
 
 - Accept: no high-severity anomalies and facing confidence is high.

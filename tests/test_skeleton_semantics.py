@@ -102,3 +102,32 @@ def test_map_unity_mecanim():
     assert mapping["right_foot"] == "RightFoot"
     assert mapping["left_toe"] == "LeftToes"
     assert mapping["right_toe"] == "RightToes"
+
+def test_map_numbered_mmd_bones():
+    mapping = map_skeleton_semantics([
+        "019_下半身",
+        "002_上半身",
+        "003_首",
+        "004_頭",
+        "005_右肩",
+        "006_右腕",
+        "007_右ひじ",
+        "008_右手首",
+        "009_左肩",
+        "010_左腕",
+        "011_左ひじ",
+        "012_左手首",
+        "013_右足",
+        "014_右ひざ",
+        "015_右足首",
+        "016_左足",
+        "017_左ひざ",
+        "018_左足首",
+    ])
+    assert mapping["pelvis"] == "019_下半身"
+    assert mapping["head"] == "004_頭"
+    assert mapping["left_arm"] == "010_左腕"
+    assert mapping["right_arm"] == "006_右腕"
+    assert mapping["left_thigh"] == "016_左足"
+    assert mapping["right_shin"] == "014_右ひざ"
+    assert mapping["left_foot"] == "018_左足首"

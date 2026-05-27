@@ -27,6 +27,8 @@ class MeshData:
     bbox_world_min: Optional[List[float]] = None
     bbox_world_max: Optional[List[float]] = None
     dimensions: Optional[List[float]] = None
+    mesh_profile: dict = field(default_factory=dict)
+    vertices_sample: List[List[float]] = field(default_factory=list)
 
 @dataclass
 class BoneData:
@@ -103,6 +105,8 @@ def _load_mesh(data: dict) -> MeshData:
         bbox_world_min=data.get("bbox_world_min"),
         bbox_world_max=data.get("bbox_world_max"),
         dimensions=data.get("dimensions"),
+        mesh_profile=data.get("mesh_profile", {}),
+        vertices_sample=data.get("vertices_sample", []),
         materials=data.get("materials", []),
         has_armature_modifier=data.get("has_armature_modifier", False),
         armature_name=data.get("armature_name"),

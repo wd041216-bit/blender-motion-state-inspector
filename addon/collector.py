@@ -7,6 +7,10 @@ from mathutils import Vector
 from .utils import ensure_object_mode, get_evaluated_mesh
 
 
+MESH_PROFILE_QUANTILES = (0.05, 0.25, 0.5, 0.75, 0.95)
+MESH_PROFILE_SAMPLE_LIMIT = 256
+
+
 def collect_scene(target="all", simplified=False):
     ensure_object_mode()
     scene = bpy.context.scene
@@ -72,12 +76,62 @@ def _collect_mesh(obj, simplified):
         "armature_name": arm_name,
         "vertex_groups_count": len(obj.vertex_groups),
     }
-    if not simplified:
-        eval_mesh = get_evaluated_mesh(obj)
-        verts = [list(v.co) for v in eval_mesh.vertices]
-        result["vertices"] = verts
+    eval_mesh = get_evaluated_mesh(obj)
+    try:
+        world_verts = [obj.matrix_world @ v.co for v in eval_mesh.vertices]
+        result["mesh_profile"] = _build_mesh_profile(world_verts)
+        result["vertices_sample"] = _sample_vertices(world_verts)
+        if not simplified:
+            result["vertices"] = [list(v.co) for v in eval_mesh.vertices]
+    finally:
         obj.to_mesh_clear()
     return result
+
+
+def _build_mesh_profile(world_verts):
+    if not world_verts:
+        return {
+            "schema": "motion_state_mesh_profile.v1",
+            "vertex_count_evaluated": 0,
+            "axis_quantiles": {},
+            "world_bbox_min": None,
+            "world_bbox_max": None,
+        }
+    axes = ("x", "y", "z")
+    coords = [[float(v[i]) for v in world_verts] for i in range(3)]
+    return {
+        "schema": "motion_state_mesh_profile.v1",
+        "vertex_count_evaluated": len(world_verts),
+        "sample_count": min(len(world_verts), MESH_PROFILE_SAMPLE_LIMIT),
+        "world_bbox_min": [min(axis_values) for axis_values in coords],
+        "world_bbox_max": [max(axis_values) for axis_values in coords],
+        "axis_quantiles": {
+            axis: _axis_quantiles(axis_values)
+            for axis, axis_values in zip(axes, coords)
+        },
+    }
+
+
+def _axis_quantiles(values):
+    ordered = sorted(values)
+    if not ordered:
+        return {}
+    result = {}
+    last_index = len(ordered) - 1
+    for q in MESH_PROFILE_QUANTILES:
+        index = round(q * last_index)
+        result[f"q{int(q * 100):02d}"] = ordered[index]
+    return result
+
+
+def _sample_vertices(world_verts):
+    if len(world_verts) <= MESH_PROFILE_SAMPLE_LIMIT:
+        return [list(v) for v in world_verts]
+    last_index = len(world_verts) - 1
+    return [
+        list(world_verts[round(i * last_index / (MESH_PROFILE_SAMPLE_LIMIT - 1))])
+        for i in range(MESH_PROFILE_SAMPLE_LIMIT)
+    ]
 
 
 def _collect_armature(obj):

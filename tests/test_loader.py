@@ -65,3 +65,18 @@ def test_load_legacy_actor_distance_schema():
     scene = load_raw_state(raw)
     assert scene.spatial.actor_distances[0].from_actor == "A"
     assert scene.spatial.actor_distances[0].to_actor == "B"
+
+def test_load_mesh_profile_and_vertex_sample():
+    raw = json.loads(json.dumps(SAMPLE_RAW))
+    raw["actors"][0]["mesh"]["mesh_profile"] = {
+        "schema": "motion_state_mesh_profile.v1",
+        "vertex_count_evaluated": 12,
+        "axis_quantiles": {"x": {"q05": -0.4, "q50": 0.0, "q95": 0.4}},
+    }
+    raw["actors"][0]["mesh"]["vertices_sample"] = [[0.0, 0.0, 0.0], [0.1, 0.2, 0.3]]
+
+    scene = load_raw_state(raw)
+
+    assert scene.actors[0].mesh.mesh_profile["schema"] == "motion_state_mesh_profile.v1"
+    assert scene.actors[0].mesh.mesh_profile["vertex_count_evaluated"] == 12
+    assert scene.actors[0].mesh.vertices_sample == [[0.0, 0.0, 0.0], [0.1, 0.2, 0.3]]

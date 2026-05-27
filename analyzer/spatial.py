@@ -1,6 +1,6 @@
 import math
 from analyzer.loader import SceneState
-from typing import Dict, List
+from typing import Any, Dict, List
 
 def _bbox_center(actor):
     bmin = actor.mesh.bbox_world_min or actor.mesh.bbox_min
@@ -12,6 +12,17 @@ def _dist(a, b):
 
 def calculate_spatial_summary(scene: SceneState) -> Dict:
     centers = {a.name: _bbox_center(a) for a in scene.actors}
+    bounds = {}
+    for actor in scene.actors:
+        bmin = actor.mesh.bbox_world_min or actor.mesh.bbox_min
+        bmax = actor.mesh.bbox_world_max or actor.mesh.bbox_max
+        bounds[actor.name] = {
+            "center": [round((a + b) / 2, 4) for a, b in zip(bmin, bmax)],
+            "size": [round(abs(b - a), 4) for a, b in zip(bmin, bmax)],
+        }
+        axis_z = _matrix_axis_z(actor.world_matrix)
+        if axis_z is not None:
+            bounds[actor.name]["axis_z"] = [_number(value, 6) for value in axis_z]
     distances = []
     names = list(centers.keys())
     for i in range(len(names)):
@@ -31,4 +42,469 @@ def calculate_spatial_summary(scene: SceneState) -> Dict:
             "focal_length": cam.focal_length,
         },
         "actor_distances": distances,
+        "actor_bounds": bounds,
+    }
+
+
+TRANSLATION_LOCK_SCHEMA = "motion_state_translation_locks.v1"
+TRANSLATION_LOCK_GROUP_SCHEMA = "motion_state_translation_lock_groups.v1"
+ORIENTATION_LOCK_GROUP_SCHEMA = "motion_state_orientation_lock_groups.v1"
+ORIENTATION_ANCHORS = ("body", "head", "body_side", "head_side", "left_hand", "right_hand", "left_foot", "right_foot")
+
+
+def _number(value: float, digits: int = 5) -> float:
+    return round(float(value), digits)
+
+
+def _summarize(values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {"count": 0, "mean": None, "max": None}
+    return {
+        "count": len(values),
+        "mean": _number(sum(values) / len(values)),
+        "max": _number(max(values)),
+    }
+
+
+def _frame_reports(report: dict[str, Any]) -> list[dict[str, Any]]:
+    if isinstance(report.get("frame_reports"), list):
+        return [frame for frame in report["frame_reports"] if isinstance(frame, dict)]
+    return [report]
+
+
+def _bounds(report_frame: dict[str, Any]) -> dict[str, Any]:
+    return report_frame.get("spatial", {}).get("actor_bounds", {}) or {}
+
+
+def _match_actor_name(bounds: dict[str, Any], token: str) -> str | None:
+    lowered = token.lower()
+    exact = [name for name in bounds if name.lower() == lowered]
+    if exact:
+        return sorted(exact)[0]
+    partial = [name for name in bounds if lowered in name.lower()]
+    if partial:
+        return sorted(partial, key=lambda name: (len(name), name))[0]
+    return None
+
+
+def _parse_pair_spec(pair_spec: str) -> tuple[str, str]:
+    if "=" not in pair_spec:
+        raise ValueError(f"Translation lock pair must use control=experiment format: {pair_spec!r}")
+    left, right = pair_spec.split("=", 1)
+    left = left.strip()
+    right = right.strip()
+    if not left or not right:
+        raise ValueError(f"Translation lock pair must name both actors: {pair_spec!r}")
+    return left, right
+
+
+def _parse_group_spec(group_spec: str) -> tuple[list[str], list[str]]:
+    if "=" not in group_spec:
+        raise ValueError(f"Translation lock group must use controls=experiments format: {group_spec!r}")
+    left, right = group_spec.split("=", 1)
+    controls = [item.strip() for item in left.split(",") if item.strip()]
+    experiments = [item.strip() for item in right.split(",") if item.strip()]
+    if not controls or not experiments or len(controls) != len(experiments):
+        raise ValueError(
+            "Translation lock group must name the same number of control and experiment actor tokens: "
+            f"{group_spec!r}"
+        )
+    return controls, experiments
+
+
+def _center(bounds: dict[str, Any], name: str) -> list[float] | None:
+    value = bounds.get(name, {}).get("center")
+    if isinstance(value, list) and len(value) >= 3:
+        return [float(value[0]), float(value[1]), float(value[2])]
+    return None
+
+
+def _vector_delta(a: list[float], b: list[float]) -> list[float]:
+    return [a[index] - b[index] for index in range(3)]
+
+
+def _distance(values: list[float]) -> float:
+    return math.sqrt(sum(value * value for value in values))
+
+
+def _normalize(values: list[float]) -> list[float] | None:
+    if len(values) < 3:
+        return None
+    length = _distance(values[:3])
+    if length < 1e-8:
+        return None
+    return [float(value) / length for value in values[:3]]
+
+
+def _matrix_axis_z(world_matrix: list[list[float]]) -> list[float] | None:
+    if not isinstance(world_matrix, list) or len(world_matrix) < 3:
+        return None
+    try:
+        axis = [float(world_matrix[0][2]), float(world_matrix[1][2]), float(world_matrix[2][2])]
+    except (TypeError, IndexError, ValueError):
+        return None
+    return _normalize(axis)
+
+
+def _axis_z(bounds: dict[str, Any], name: str) -> list[float] | None:
+    value = bounds.get(name, {}).get("axis_z")
+    if isinstance(value, list):
+        return _normalize([float(item) for item in value[:3]])
+    return None
+
+
+def _angle_degrees(left: list[float], right: list[float]) -> float:
+    left_axis = _normalize(left)
+    right_axis = _normalize(right)
+    if left_axis is None or right_axis is None:
+        return 180.0
+    dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(left_axis, right_axis))))
+    return math.degrees(math.acos(dot))
+
+
+def _mean_vector(vectors: list[list[float]]) -> list[float]:
+    return [sum(vector[index] for vector in vectors) / len(vectors) for index in range(3)]
+
+
+def _pairwise_distances(points: list[list[float]]) -> dict[tuple[int, int], float]:
+    distances: dict[tuple[int, int], float] = {}
+    for left in range(len(points)):
+        for right in range(left + 1, len(points)):
+            distances[(left, right)] = _distance(_vector_delta(points[left], points[right]))
+    return distances
+
+
+def _control_orientation_token(control_token: str, anchor: str) -> str:
+    token = control_token
+    for prefix in ("control_mesh_", "control_skeleton_", "control_"):
+        if token.startswith(prefix):
+            token = token[len(prefix) :]
+            break
+    return f"control_orient_{token}_{anchor}"
+
+
+def _experiment_orientation_token(experiment_token: str, anchor: str) -> str:
+    token = experiment_token
+    if token.startswith("experiment_"):
+        token = token[len("experiment_") :]
+    return f"experiment_orient_{token}_{anchor}"
+
+
+def _max_pairwise_vector_distance(vectors: list[list[float]]) -> float:
+    if len(vectors) < 2:
+        return 0.0
+    return max(_pairwise_distances(vectors).values(), default=0.0)
+
+
+def evaluate_translation_locks(
+    report: dict[str, Any],
+    pair_specs: list[str],
+    tolerance: float = 0.03,
+) -> dict[str, Any]:
+    """Verify experiment actors remain pure translations of their control actors."""
+    frames = _frame_reports(report)
+    pairs = []
+    for pair_spec in pair_specs:
+        control_token, experiment_token = _parse_pair_spec(pair_spec)
+        samples = []
+        missing = []
+        baseline_translation = None
+        drifts = []
+        for frame in frames:
+            frame_number = frame.get("frame_info", {}).get("current")
+            bounds = _bounds(frame)
+            control_name = _match_actor_name(bounds, control_token)
+            experiment_name = _match_actor_name(bounds, experiment_token)
+            if not control_name or not experiment_name:
+                missing.append(
+                    {
+                        "frame": frame_number,
+                        "control": control_token if not control_name else control_name,
+                        "experiment": experiment_token if not experiment_name else experiment_name,
+                    }
+                )
+                continue
+            control_center = _center(bounds, control_name)
+            experiment_center = _center(bounds, experiment_name)
+            if control_center is None or experiment_center is None:
+                missing.append({"frame": frame_number, "control": control_name, "experiment": experiment_name})
+                continue
+            translation = _vector_delta(experiment_center, control_center)
+            if baseline_translation is None:
+                baseline_translation = translation
+            drift_vector = _vector_delta(translation, baseline_translation)
+            drift = _distance(drift_vector)
+            drifts.append(drift)
+            samples.append(
+                {
+                    "frame": frame_number,
+                    "control": control_name,
+                    "experiment": experiment_name,
+                    "translation": [_number(value) for value in translation],
+                    "drift_m": _number(drift),
+                }
+            )
+        drift_summary = _summarize(drifts)
+        pair_verdict = (
+            "pass"
+            if samples
+            and not missing
+            and drift_summary["max"] is not None
+            and drift_summary["max"] <= tolerance
+            else "fail"
+        )
+        pairs.append(
+            {
+                "pair": pair_spec,
+                "control_token": control_token,
+                "experiment_token": experiment_token,
+                "baseline_translation": [_number(value) for value in baseline_translation] if baseline_translation else None,
+                "tolerance_m": tolerance,
+                "drift_m": drift_summary,
+                "sample_count": len(samples),
+                "missing": missing,
+                "samples": samples[:24],
+                "verdict": pair_verdict,
+            }
+        )
+    return {
+        "schema": TRANSLATION_LOCK_SCHEMA,
+        "principle": "experiment_center(frame) must equal control_center(frame) plus one constant translation vector",
+        "verdict": "pass" if pairs and all(pair["verdict"] == "pass" for pair in pairs) else "fail",
+        "pairs": pairs,
+    }
+
+
+def evaluate_translation_lock_groups(
+    report: dict[str, Any],
+    group_specs: list[str],
+    tolerance: float = 0.03,
+) -> dict[str, Any]:
+    """Verify a matched control/experiment actor set shares one group translation."""
+    frames = _frame_reports(report)
+    groups = []
+    for group_spec in group_specs:
+        control_tokens, experiment_tokens = _parse_group_spec(group_spec)
+        samples = []
+        missing = []
+        baseline_shared_translation = None
+        shared_drifts = []
+        member_spreads = []
+        distance_drifts = []
+
+        for frame in frames:
+            frame_number = frame.get("frame_info", {}).get("current")
+            bounds = _bounds(frame)
+            control_names = []
+            experiment_names = []
+            control_centers = []
+            experiment_centers = []
+            frame_missing = []
+            for control_token, experiment_token in zip(control_tokens, experiment_tokens, strict=True):
+                control_name = _match_actor_name(bounds, control_token)
+                experiment_name = _match_actor_name(bounds, experiment_token)
+                if not control_name or not experiment_name:
+                    frame_missing.append(
+                        {
+                            "control": control_token if not control_name else control_name,
+                            "experiment": experiment_token if not experiment_name else experiment_name,
+                        }
+                    )
+                    continue
+                control_center = _center(bounds, control_name)
+                experiment_center = _center(bounds, experiment_name)
+                if control_center is None or experiment_center is None:
+                    frame_missing.append({"control": control_name, "experiment": experiment_name})
+                    continue
+                control_names.append(control_name)
+                experiment_names.append(experiment_name)
+                control_centers.append(control_center)
+                experiment_centers.append(experiment_center)
+            if frame_missing:
+                missing.append({"frame": frame_number, "members": frame_missing})
+                continue
+            member_translations = [
+                _vector_delta(experiment_center, control_center)
+                for control_center, experiment_center in zip(control_centers, experiment_centers, strict=True)
+            ]
+            shared_translation = _mean_vector(member_translations)
+            if baseline_shared_translation is None:
+                baseline_shared_translation = shared_translation
+
+            shared_drift = _distance(_vector_delta(shared_translation, baseline_shared_translation))
+            member_spread = _max_pairwise_vector_distance(member_translations)
+            control_distances = _pairwise_distances(control_centers)
+            experiment_distances = _pairwise_distances(experiment_centers)
+            frame_distance_drifts = []
+            for key, control_distance in control_distances.items():
+                experiment_distance = experiment_distances.get(key)
+                if experiment_distance is None:
+                    continue
+                frame_distance_drifts.append(abs(experiment_distance - control_distance))
+            distance_drift = max(frame_distance_drifts, default=0.0)
+            shared_drifts.append(shared_drift)
+            member_spreads.append(member_spread)
+            distance_drifts.append(distance_drift)
+            samples.append(
+                {
+                    "frame": frame_number,
+                    "controls": control_names,
+                    "experiments": experiment_names,
+                    "shared_translation": [_number(value) for value in shared_translation],
+                    "member_translations": [[_number(value) for value in vector] for vector in member_translations],
+                    "shared_translation_drift_m": _number(shared_drift),
+                    "member_translation_spread_m": _number(member_spread),
+                    "intra_group_distance_drift_m": _number(distance_drift),
+                }
+            )
+
+        shared_summary = _summarize(shared_drifts)
+        spread_summary = _summarize(member_spreads)
+        distance_summary = _summarize(distance_drifts)
+        group_verdict = (
+            "pass"
+            if samples
+            and not missing
+            and shared_summary["max"] is not None
+            and shared_summary["max"] <= tolerance
+            and spread_summary["max"] is not None
+            and spread_summary["max"] <= tolerance
+            and distance_summary["max"] is not None
+            and distance_summary["max"] <= tolerance
+            else "fail"
+        )
+        groups.append(
+            {
+                "group": group_spec,
+                "control_tokens": control_tokens,
+                "experiment_tokens": experiment_tokens,
+                "baseline_shared_translation": (
+                    [_number(value) for value in baseline_shared_translation] if baseline_shared_translation else None
+                ),
+                "tolerance_m": tolerance,
+                "shared_translation_drift_m": shared_summary,
+                "member_translation_spread_m": spread_summary,
+                "intra_group_distance_drift_m": distance_summary,
+                "sample_count": len(samples),
+                "missing": missing,
+                "samples": samples[:24],
+                "verdict": group_verdict,
+            }
+        )
+    return {
+        "schema": TRANSLATION_LOCK_GROUP_SCHEMA,
+        "principle": (
+            "all matched experiment actors in a group must equal their controls plus one shared translation vector; "
+            "intra-group distances must remain locked"
+        ),
+        "verdict": "pass" if groups and all(group["verdict"] == "pass" for group in groups) else "fail",
+        "groups": groups,
+    }
+
+
+def evaluate_orientation_lock_groups(
+    report: dict[str, Any],
+    group_specs: list[str],
+    tolerance_degrees: float = 12.0,
+    anchors: tuple[str, ...] = ORIENTATION_ANCHORS,
+) -> dict[str, Any]:
+    """Verify matched control/experiment anchors keep the same world-space orientation."""
+    frames = _frame_reports(report)
+    groups = []
+    for group_spec in group_specs:
+        control_tokens, experiment_tokens = _parse_group_spec(group_spec)
+        samples = []
+        missing = []
+        angle_errors = []
+
+        for frame in frames:
+            frame_number = frame.get("frame_info", {}).get("current")
+            bounds = _bounds(frame)
+            frame_missing = []
+            frame_errors: dict[str, float] = {}
+            pair_errors = []
+
+            for control_token, experiment_token in zip(control_tokens, experiment_tokens, strict=True):
+                for anchor in anchors:
+                    control_anchor_token = _control_orientation_token(control_token, anchor)
+                    experiment_anchor_token = _experiment_orientation_token(experiment_token, anchor)
+                    control_name = _match_actor_name(bounds, control_anchor_token)
+                    experiment_name = _match_actor_name(bounds, experiment_anchor_token)
+                    if not control_name or not experiment_name:
+                        frame_missing.append(
+                            {
+                                "anchor": anchor,
+                                "control": control_anchor_token if not control_name else control_name,
+                                "experiment": experiment_anchor_token if not experiment_name else experiment_name,
+                            }
+                        )
+                        continue
+                    control_axis = _axis_z(bounds, control_name)
+                    experiment_axis = _axis_z(bounds, experiment_name)
+                    if control_axis is None or experiment_axis is None:
+                        frame_missing.append(
+                            {
+                                "anchor": anchor,
+                                "control": control_name,
+                                "experiment": experiment_name,
+                                "reason": "missing_axis_z",
+                            }
+                        )
+                        continue
+                    angle = _angle_degrees(control_axis, experiment_axis)
+                    angle_errors.append(angle)
+                    pair_errors.append(
+                        {
+                            "control": control_name,
+                            "experiment": experiment_name,
+                            "anchor": anchor,
+                            "angle_error_degrees": _number(angle),
+                        }
+                    )
+                    key = anchor if len(control_tokens) == 1 else f"{experiment_token}:{anchor}"
+                    frame_errors[key] = _number(angle)
+
+            if frame_missing:
+                missing.append({"frame": frame_number, "anchors": frame_missing})
+                continue
+            samples.append(
+                {
+                    "frame": frame_number,
+                    "anchor_errors": frame_errors,
+                    "max_angle_error_degrees": _number(max(frame_errors.values(), default=0.0)),
+                    "pairs": pair_errors,
+                }
+            )
+
+        angle_summary = _summarize(angle_errors)
+        group_verdict = (
+            "pass"
+            if samples
+            and not missing
+            and angle_summary["max"] is not None
+            and angle_summary["max"] <= tolerance_degrees
+            else "fail"
+        )
+        groups.append(
+            {
+                "group": group_spec,
+                "control_tokens": control_tokens,
+                "experiment_tokens": experiment_tokens,
+                "anchors": list(anchors),
+                "tolerance_degrees": tolerance_degrees,
+                "anchor_angle_error_degrees": angle_summary,
+                "sample_count": len(samples),
+                "missing": missing,
+                "samples": samples[:24],
+                "verdict": group_verdict,
+            }
+        )
+    return {
+        "schema": ORIENTATION_LOCK_GROUP_SCHEMA,
+        "principle": (
+            "matched body, head, hand, and foot anchor axes must keep the same world-space orientation "
+            "as the corresponding control anchors"
+        ),
+        "verdict": "pass" if groups and all(group["verdict"] == "pass" for group in groups) else "fail",
+        "groups": groups,
     }
